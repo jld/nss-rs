@@ -1,0 +1,8 @@
+[package]
+name = "nss-sys"
+version = "0.1.0"
+authors = ["Jed Davis <jld@mozilla.com>"]
+build = "build.rs"
+
+[dependencies]
+libc = "0.2"
