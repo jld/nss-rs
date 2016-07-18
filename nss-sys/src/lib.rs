@@ -16,6 +16,7 @@ c_enum! {
 
 extern "C" {
     pub fn NSS_NoDB_Init(_configdir: *const c_char) -> SECStatus;
+    pub fn NSS_SetDomesticPolicy() -> SECStatus;
 }
 
 
@@ -24,9 +25,18 @@ mod tests {
     use super::*;
     use std::ptr;
 
+    macro_rules! assert_ok {
+        ($e:expr) => { assert_eq!(unsafe { $e }, SECSuccess) }
+    }
+
     #[test]
     fn init() {
-        let status = unsafe { NSS_NoDB_Init(ptr::null()) };
-        assert_eq!(status, SECSuccess);
+        assert_ok!(NSS_NoDB_Init(ptr::null()));
+    }
+
+    #[test]
+    fn set_domestic() {
+        init();
+        assert_ok!(NSS_SetDomesticPolicy());
     }
 }
