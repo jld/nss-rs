@@ -1,18 +1,19 @@
 #![allow(non_upper_case_globals)]
+#![allow(non_snake_case)]
 
 extern crate libc;
-#[macro_use]
-mod util;
+pub mod nspr;
 
-use libc::{c_char, c_int};
+use libc::c_char;
 
-c_enum! {
-    pub enum SECStatus: c_int {
-        SECWouldBlock = -2,
-        SECFailure = -1,
-        SECSuccess = 0,
-    }
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[repr(C)]
+pub enum SECStatus {
+    SECWouldBlock = -2,
+    SECFailure = -1,
+    SECSuccess = 0,
 }
+pub use self::SECStatus::*;
 
 extern "C" {
     pub fn NSS_NoDB_Init(_configdir: *const c_char) -> SECStatus;
