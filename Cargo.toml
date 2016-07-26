@@ -1,0 +1,7 @@
+[package]
+name = "nss"
+version = "0.1.0"
+authors = ["Jed Davis <jld@mozilla.com>"]
+
+[dependencies]
+nss-sys = { version = "*", path = "nss-sys" }
