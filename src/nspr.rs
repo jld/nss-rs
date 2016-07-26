@@ -56,9 +56,32 @@ macro_rules! nspr_errors {
                 None
             }
         }
-        // TODO?: map into `ErrorKind`.
     }
 }
+
+macro_rules! error_kinds {
+    { $($ek_name:ident = $pr_name:ident $(| $pr_alias:ident)*),* } => {
+        impl ErrorCode {
+            // FIXME: should this be Into, or is it too lossy?
+            pub fn kind(&self) -> io::ErrorKind {
+                match self.0 {
+                    $(sys::$pr_name => io::ErrorKind::$ek_name
+                      $(, sys::$pr_alias => io::ErrorKind::$ek_name)*),*,
+                    _ => io::ErrorKind::Other,
+                }
+            }
+        }
+        impl From<io::ErrorKind> for ErrorCode {
+            fn from(ek: io::ErrorKind) -> Self {
+                match ek {
+                    $(io::ErrorKind::$ek_name => $pr_name),*,
+                    _ => PR_IO_ERROR,
+                }
+            }
+        }
+    }
+}
+
 
 #[derive(Clone, Copy, Debug)]
 pub struct Error {
@@ -89,7 +112,7 @@ impl Into<io::Error> for Error {
         if self.os_error != 0 {
             io::Error::from_raw_os_error(self.os_error)
         } else {
-            io::Error::new(/* FIXME? */ io::ErrorKind::Other,
+            io::Error::new(self.nspr_error.kind(),
                            Box::new(self.nspr_error))
         }
     }
@@ -97,8 +120,7 @@ impl Into<io::Error> for Error {
 impl From<io::Error> for Error {
     fn from(err: io::Error) -> Self {
         Error {
-            // FIXME: could do something with err.kind()?
-            nspr_error: PR_IO_ERROR,
+            nspr_error: err.kind().into(),
             os_error: err.raw_os_error().unwrap_or(0),
         }
     }
@@ -186,4 +208,25 @@ nspr_errors! {
     PR_HOST_UNREACHABLE_ERROR =   "Host is unreachable",
     PR_LIBRARY_NOT_LOADED_ERROR = "The library is not loaded",
     PR_CALL_ONCE_ERROR = "The one-time function was previously called and failed. Its error code is no longer available"
+}
+
+error_kinds! {
+    // Based on decode_error_kind in libstd and _MD_unix_map_default_error in NSPR.
+    NotFound          = PR_FILE_NOT_FOUND_ERROR,
+    PermissionDenied  = PR_NO_ACCESS_RIGHTS_ERROR | PR_READ_ONLY_FILESYSTEM_ERROR
+        | PR_FILE_IS_LOCKED_ERROR | PR_IS_DIRECTORY_ERROR,
+    ConnectionRefused = PR_CONNECT_REFUSED_ERROR,
+    ConnectionReset   = PR_CONNECT_RESET_ERROR,
+    ConnectionAborted = PR_CONNECT_ABORTED_ERROR,
+    NotConnected      = PR_NOT_CONNECTED_ERROR,
+    AddrInUse         = PR_ADDRESS_IN_USE_ERROR,
+    AddrNotAvailable  = PR_ADDRESS_NOT_AVAILABLE_ERROR | PR_BAD_ADDRESS_ERROR,
+    BrokenPipe        = PR_SOCKET_SHUTDOWN_ERROR | PR_PIPE_ERROR,
+    AlreadyExists     = PR_FILE_EXISTS_ERROR | PR_DIRECTORY_NOT_EMPTY_ERROR,
+    WouldBlock        = PR_WOULD_BLOCK_ERROR,
+    InvalidInput      = PR_INVALID_ARGUMENT_ERROR | PR_INVALID_METHOD_ERROR
+        | PR_BUFFER_OVERFLOW_ERROR | PR_SOCKET_ADDRESS_IS_BOUND_ERROR | PR_BAD_DESCRIPTOR_ERROR,
+    TimedOut          = PR_IO_TIMEOUT_ERROR | PR_CONNECT_TIMEOUT_ERROR | PR_REMOTE_FILE_ERROR,
+    Interrupted       = PR_PENDING_INTERRUPT_ERROR,
+    UnexpectedEof     = PR_END_OF_FILE_ERROR | PR_NO_MORE_FILES_ERROR
 }
