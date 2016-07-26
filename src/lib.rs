@@ -14,7 +14,7 @@ fn status_to_result(status: sys::SECStatus) -> Result<()> {
     match status {
         sys::SECSuccess => Ok(()),
         sys::SECFailure => Err(Error::last()),
-        sys::SECWouldBlock => Err(nspr::PR_WOULD_BLOCK_ERROR.into()),
+        sys::SECWouldBlock => Err(nspr::error::PR_WOULD_BLOCK_ERROR.into()),
     }
 }
 
