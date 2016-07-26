@@ -5,3 +5,4 @@ authors = ["Jed Davis <jld@mozilla.com>"]
 
 [dependencies]
 nss-sys = { version = "*", path = "nss-sys" }
+libc = "0.2"

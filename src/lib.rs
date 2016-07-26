@@ -1,3 +1,4 @@
+extern crate libc;
 extern crate nss_sys;
 pub mod nspr;
 

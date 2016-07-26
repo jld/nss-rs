@@ -524,4 +524,7 @@ extern "C" {
     // PR_LoadLibrary (and only on BeOS?), so not binding it.
 
     pub fn PR_Close(fd: *mut PRFileDesc) -> PRStatus;
+
+    pub fn PR_OpenTCPSocket(af: PRIntn) -> *mut PRFileDesc;
+    pub fn PR_OpenUDPSocket(af: PRIntn) -> *mut PRFileDesc;
 }

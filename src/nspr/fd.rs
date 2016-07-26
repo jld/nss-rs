@@ -1,6 +1,8 @@
 use nss_sys::nspr as sys;
 use std::mem;
 use std::ptr;
+use ::Result;
+use ::Error;
 
 pub type RawFile = *mut sys::PRFileDesc;
 
@@ -40,6 +42,39 @@ impl File {
             Some(Self::from_raw_prfd(fd))
         }
     }
+    unsafe fn from_raw_prfd_err(fd: RawFile) -> Result<Self> {
+        if fd == null() {
+            Err(Error::last())
+        } else {
+            Ok(Self::from_raw_prfd(fd))
+        }
+    }
+
+    pub fn new_tcp_socket(af: ::libc::c_int) -> Result<Self> {
+        super::init();
+        unsafe { Self::from_raw_prfd_err(sys::PR_OpenTCPSocket(af)) }
+    }
+    pub fn new_udp_socket(af: ::libc::c_int) -> Result<Self> {
+        super::init();
+        unsafe { Self::from_raw_prfd_err(sys::PR_OpenUDPSocket(af)) }
+    }
 }
 
 fn null() -> RawFile { ptr::null_mut() }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ::nspr::init;
+    use ::libc;
+
+    #[test]
+    fn drop_tcp() {
+        let _fd = File::new_tcp_socket(libc::AF_INET).unwrap();
+    }
+
+    #[test]
+    fn drop_udp() {
+        let _fd = File::new_udp_socket(libc::AF_INET).unwrap();
+    }
+}
