@@ -28,6 +28,86 @@ pub enum PRStatus {
 }
 pub use self::PRStatus::*;
 
+pub type PRErrorCode = PRInt32;
+
+pub const PR_OUT_OF_MEMORY_ERROR: PRErrorCode = -6000;
+pub const PR_BAD_DESCRIPTOR_ERROR: PRErrorCode = -5999;
+pub const PR_WOULD_BLOCK_ERROR: PRErrorCode = -5998;
+pub const PR_ACCESS_FAULT_ERROR: PRErrorCode = -5997;
+pub const PR_INVALID_METHOD_ERROR: PRErrorCode = -5996;
+pub const PR_ILLEGAL_ACCESS_ERROR: PRErrorCode = -5995;
+pub const PR_UNKNOWN_ERROR: PRErrorCode = -5994;
+pub const PR_PENDING_INTERRUPT_ERROR: PRErrorCode = -5993;
+pub const PR_NOT_IMPLEMENTED_ERROR: PRErrorCode = -5992;
+pub const PR_IO_ERROR: PRErrorCode = -5991;
+pub const PR_IO_TIMEOUT_ERROR: PRErrorCode = -5990;
+pub const PR_IO_PENDING_ERROR: PRErrorCode = -5989;
+pub const PR_DIRECTORY_OPEN_ERROR: PRErrorCode = -5988;
+pub const PR_INVALID_ARGUMENT_ERROR: PRErrorCode = -5987;
+pub const PR_ADDRESS_NOT_AVAILABLE_ERROR: PRErrorCode = -5986;
+pub const PR_ADDRESS_NOT_SUPPORTED_ERROR: PRErrorCode = -5985;
+pub const PR_IS_CONNECTED_ERROR: PRErrorCode = -5984;
+pub const PR_BAD_ADDRESS_ERROR: PRErrorCode = -5983;
+pub const PR_ADDRESS_IN_USE_ERROR: PRErrorCode = -5982;
+pub const PR_CONNECT_REFUSED_ERROR: PRErrorCode = -5981;
+pub const PR_NETWORK_UNREACHABLE_ERROR: PRErrorCode = -5980;
+pub const PR_CONNECT_TIMEOUT_ERROR: PRErrorCode = -5979;
+pub const PR_NOT_CONNECTED_ERROR: PRErrorCode = -5978;
+pub const PR_LOAD_LIBRARY_ERROR: PRErrorCode = -5977;
+pub const PR_UNLOAD_LIBRARY_ERROR: PRErrorCode = -5976;
+pub const PR_FIND_SYMBOL_ERROR: PRErrorCode = -5975;
+pub const PR_INSUFFICIENT_RESOURCES_ERROR: PRErrorCode = -5974;
+pub const PR_DIRECTORY_LOOKUP_ERROR: PRErrorCode = -5973;
+pub const PR_TPD_RANGE_ERROR: PRErrorCode = -5972;
+pub const PR_PROC_DESC_TABLE_FULL_ERROR: PRErrorCode = -5971;
+pub const PR_SYS_DESC_TABLE_FULL_ERROR: PRErrorCode = -5970;
+pub const PR_NOT_SOCKET_ERROR: PRErrorCode = -5969;
+pub const PR_NOT_TCP_SOCKET_ERROR: PRErrorCode = -5968;
+pub const PR_SOCKET_ADDRESS_IS_BOUND_ERROR: PRErrorCode = -5967;
+pub const PR_NO_ACCESS_RIGHTS_ERROR: PRErrorCode = -5966;
+pub const PR_OPERATION_NOT_SUPPORTED_ERROR: PRErrorCode = -5965;
+pub const PR_PROTOCOL_NOT_SUPPORTED_ERROR: PRErrorCode = -5964;
+pub const PR_REMOTE_FILE_ERROR: PRErrorCode = -5963;
+pub const PR_BUFFER_OVERFLOW_ERROR: PRErrorCode = -5962;
+pub const PR_CONNECT_RESET_ERROR: PRErrorCode = -5961;
+pub const PR_RANGE_ERROR: PRErrorCode = -5960;
+pub const PR_DEADLOCK_ERROR: PRErrorCode = -5959;
+pub const PR_FILE_IS_LOCKED_ERROR: PRErrorCode = -5958;
+pub const PR_FILE_TOO_BIG_ERROR: PRErrorCode = -5957;
+pub const PR_NO_DEVICE_SPACE_ERROR: PRErrorCode = -5956;
+pub const PR_PIPE_ERROR: PRErrorCode = -5955;
+pub const PR_NO_SEEK_DEVICE_ERROR: PRErrorCode = -5954;
+pub const PR_IS_DIRECTORY_ERROR: PRErrorCode = -5953;
+pub const PR_LOOP_ERROR: PRErrorCode = -5952;
+pub const PR_NAME_TOO_LONG_ERROR: PRErrorCode = -5951;
+pub const PR_FILE_NOT_FOUND_ERROR: PRErrorCode = -5950;
+pub const PR_NOT_DIRECTORY_ERROR: PRErrorCode = -5949;
+pub const PR_READ_ONLY_FILESYSTEM_ERROR: PRErrorCode = -5948;
+pub const PR_DIRECTORY_NOT_EMPTY_ERROR: PRErrorCode = -5947;
+pub const PR_FILESYSTEM_MOUNTED_ERROR: PRErrorCode = -5946;
+pub const PR_NOT_SAME_DEVICE_ERROR: PRErrorCode = -5945;
+pub const PR_DIRECTORY_CORRUPTED_ERROR: PRErrorCode = -5944;
+pub const PR_FILE_EXISTS_ERROR: PRErrorCode = -5943;
+pub const PR_MAX_DIRECTORY_ENTRIES_ERROR: PRErrorCode = -5942;
+pub const PR_INVALID_DEVICE_STATE_ERROR: PRErrorCode = -5941;
+pub const PR_DEVICE_IS_LOCKED_ERROR: PRErrorCode = -5940;
+pub const PR_NO_MORE_FILES_ERROR: PRErrorCode = -5939;
+pub const PR_END_OF_FILE_ERROR: PRErrorCode = -5938;
+pub const PR_FILE_SEEK_ERROR: PRErrorCode = -5937;
+pub const PR_FILE_IS_BUSY_ERROR: PRErrorCode = -5936;
+pub const PR_OPERATION_ABORTED_ERROR: PRErrorCode = -5935;
+pub const PR_IN_PROGRESS_ERROR: PRErrorCode = -5934;
+pub const PR_ALREADY_INITIATED_ERROR: PRErrorCode = -5933;
+pub const PR_GROUP_EMPTY_ERROR: PRErrorCode = -5932;
+pub const PR_INVALID_STATE_ERROR: PRErrorCode = -5931;
+pub const PR_NETWORK_DOWN_ERROR: PRErrorCode = -5930;
+pub const PR_SOCKET_SHUTDOWN_ERROR: PRErrorCode = -5929;
+pub const PR_CONNECT_ABORTED_ERROR: PRErrorCode = -5928;
+pub const PR_HOST_UNREACHABLE_ERROR: PRErrorCode = -5927;
+pub const PR_LIBRARY_NOT_LOADED_ERROR: PRErrorCode = -5926;
+pub const PR_CALL_ONCE_ERROR: PRErrorCode = -5925;
+pub const PR_MAX_ERROR: PRErrorCode = -5924;
+
 #[derive(Debug)]
 #[repr(C)]
 pub struct PRFileDesc {
@@ -438,4 +518,10 @@ extern "C" {
     pub fn PR_Init(_type: PRThreadType,
                    _priority: PRThreadPriority,
                    _maxPTDs: PRUintn);
+
+    pub fn PR_GetError() -> PRErrorCode;
+    pub fn PR_GetOSError() -> PRInt32;
+    pub fn PR_SetError(code: PRErrorCode, orErr: PRInt32);
+    // The "error text" facility seems to be used only by
+    // PR_LoadLibrary (and only on BeOS?), so not binding it.
 }
