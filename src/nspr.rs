@@ -62,7 +62,6 @@ macro_rules! nspr_errors {
 
 #[derive(Clone, Copy, Debug)]
 pub struct Error {
-    // FIXME: unsure if there's a use case for making these `pub`.
     pub nspr_error: ErrorCode,
     pub os_error: i32,
 }
@@ -77,6 +76,11 @@ impl Error {
         unsafe {
             sys::PR_SetError(self.nspr_error.0, self.os_error);
         }
+    }
+}
+impl From<ErrorCode> for Error {
+    fn from(err: ErrorCode) -> Self {
+        Error { nspr_error: err, os_error: 0 }
     }
 }
 // Are From/Into really right for lossy conversions like these?

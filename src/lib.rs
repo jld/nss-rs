@@ -3,19 +3,36 @@ pub mod nspr;
 
 use nss_sys as sys;
 use std::ptr;
+use std::result;
 
-macro_rules! assert_success {
-    ($e:expr) => { assert_eq!(unsafe { $e }, sys::SECSuccess) }
+pub type Error = nspr::Error;
+pub type Result<T> = result::Result<T, Error>;
+
+fn status_to_result(status: sys::SECStatus) -> Result<()> {
+    // Must call this immediately after the NSS operation so that the
+    // thread-local error state isn't stale.
+    match status {
+        sys::SECSuccess => Ok(()),
+        sys::SECFailure => Err(Error::last()),
+        sys::SECWouldBlock => Err(nspr::PR_WOULD_BLOCK_ERROR.into()),
+    }
 }
 
-// TODO: bind GetError and make these things return `Result`s.
+macro_rules! nss_try {
+    ($e:expr) => {
+        // Automatically adding `unsafe` is a little scary, but the
+        // idea is that `$e` will always(?) be an FFI call.
+        try!(status_to_result(unsafe { $e }))
+    }
+}
+
 // TODO: What do I do about this init/shutdown stuff vs. lifetimes/safety?
 
-pub fn init() {
+pub fn init() -> Result<()> {
     nspr::init();
-    assert_success!(sys::NSS_NoDB_Init(ptr::null()));
+    nss_try!(sys::NSS_NoDB_Init(ptr::null()));
+    Ok(())
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -23,6 +40,6 @@ mod tests {
 
     #[test]
     fn just_init() {
-        init();
+        init().unwrap();
     }
 }
