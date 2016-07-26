@@ -1,6 +1,7 @@
 use nss_sys::nspr as sys;
 use std::error;
 use std::fmt;
+use std::io;
 use std::sync::{Once, ONCE_INIT};
 
 pub fn init() {
@@ -54,6 +55,47 @@ macro_rules! nspr_errors {
             fn cause(&self) -> Option<&error::Error> {
                 None
             }
+        }
+        // TODO?: map into `ErrorKind`.
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct Error {
+    // FIXME: unsure if there's a use case for making these `pub`.
+    pub nspr_error: ErrorCode,
+    pub os_error: i32,
+}
+impl Error {
+    pub fn last() -> Self {
+        Error {
+            nspr_error: ErrorCode::last(),
+            os_error: unsafe { sys::PR_GetOSError() },
+        }
+    }
+    pub fn set(self) {
+        unsafe {
+            sys::PR_SetError(self.nspr_error.0, self.os_error);
+        }
+    }
+}
+// Are From/Into really right for lossy conversions like these?
+impl Into<io::Error> for Error {
+    fn into(self) -> io::Error {
+        if self.os_error != 0 {
+            io::Error::from_raw_os_error(self.os_error)
+        } else {
+            io::Error::new(/* FIXME? */ io::ErrorKind::Other,
+                           Box::new(self.nspr_error))
+        }
+    }
+}
+impl From<io::Error> for Error {
+    fn from(err: io::Error) -> Self {
+        Error {
+            // FIXME: could do something with err.kind()?
+            nspr_error: PR_IO_ERROR,
+            os_error: err.raw_os_error().unwrap_or(0),
         }
     }
 }
