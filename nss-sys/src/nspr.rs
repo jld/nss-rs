@@ -413,3 +413,29 @@ pub enum PRFileType {
 }
 pub use self::PRFileType::*;
 
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[repr(C)]
+pub enum PRThreadType {
+    PR_USER_THREAD,
+    PR_SYSTEM_THREAD
+}
+pub use self::PRThreadType::*;
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[repr(C)]
+pub enum PRThreadPriority
+{
+    PR_PRIORITY_LOW = 0,
+    PR_PRIORITY_NORMAL = 1,
+    PR_PRIORITY_HIGH = 2,
+    PR_PRIORITY_URGENT = 3,
+}
+pub use self::PRThreadPriority::*;
+
+extern "C" {
+    // N.B. None of these arguments are used.
+    pub fn PR_Init(_type: PRThreadType,
+                   _priority: PRThreadPriority,
+                   _maxPTDs: PRUintn);
+}
