@@ -23,8 +23,6 @@ pub type PRSize = size_t;
 pub enum PRStatus {
     PR_FAILURE = -1,
     PR_SUCCESS = 0,
-    // TODO: the other statuses.
-    // Also maybe this should be a typedef and consts.
 }
 pub use self::PRStatus::*;
 
