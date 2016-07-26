@@ -522,4 +522,6 @@ extern "C" {
     pub fn PR_SetError(code: PRErrorCode, orErr: PRInt32);
     // The "error text" facility seems to be used only by
     // PR_LoadLibrary (and only on BeOS?), so not binding it.
+
+    pub fn PR_Close(fd: *mut PRFileDesc) -> PRStatus;
 }

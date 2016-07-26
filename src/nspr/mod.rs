@@ -1,9 +1,11 @@
 pub mod error;
+pub mod fd;
 
 use nss_sys::nspr as sys;
 use std::sync::{Once, ONCE_INIT};
 
 pub use self::error::Error;
+pub use self::fd::File;
 
 pub fn init() {
     // NSPR initialization is done implicitly on the first call to any
