@@ -8,24 +8,18 @@ use nss_sys as ffi;
 use std::ptr;
 use std::result;
 
-pub type Error = nspr::Error;
+pub use nspr::Error;
 pub type Result<T> = result::Result<T, Error>;
+
+fn failed<T>() -> Result<T> { Err(Error::last()) }
 
 fn status_to_result(status: ffi::SECStatus) -> Result<()> {
     // Must call this immediately after the NSS operation so that the
     // thread-local error state isn't stale.
     match status {
         ffi::SECSuccess => Ok(()),
-        ffi::SECFailure => Err(Error::last()),
+        ffi::SECFailure => failed(),
         ffi::SECWouldBlock => Err(nspr::error::PR_WOULD_BLOCK_ERROR.into()),
-    }
-}
-
-macro_rules! nss_try {
-    ($e:expr) => {
-        // Automatically adding `unsafe` is a little scary, but the
-        // idea is that `$e` will always(?) be an FFI call.
-        try!(status_to_result(unsafe { $e }))
     }
 }
 
@@ -33,8 +27,9 @@ macro_rules! nss_try {
 
 pub fn init() -> Result<()> {
     nspr::init();
-    nss_try!(ffi::NSS_NoDB_Init(ptr::null()));
-    Ok(())
+    status_to_result(unsafe {
+        ffi::NSS_NoDB_Init(ptr::null())
+    })
 }
 
 #[cfg(test)]

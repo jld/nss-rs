@@ -7,8 +7,7 @@ use std::mem;
 use std::ops::Deref;
 use std::ptr;
 use std::sync::Arc;
-use ::Error;
-use ::Result;
+use ::{Error,Result,failed};
 
 pub type RawFile = *mut ffi::PRFileDesc;
 
@@ -56,15 +55,6 @@ impl File {
         }
     }
 
-    // Should these be in a different module?  (Or here at all?)
-    pub fn new_tcp_socket(af: c_int) -> Result<Self> {
-        super::init();
-        unsafe { Self::from_raw_prfd_err(ffi::PR_OpenTCPSocket(af)) }
-    }
-    pub fn new_udp_socket(af: c_int) -> Result<Self> {
-        super::init();
-        unsafe { Self::from_raw_prfd_err(ffi::PR_OpenUDPSocket(af)) }
-    }
     pub fn new_pipe() -> Result<(File, File)> {
         super::init();
         let mut reader = null();
@@ -80,7 +70,6 @@ impl File {
 }
 
 fn null() -> RawFile { ptr::null_mut() }
-fn failed<T>() -> Result<T> { Err(Error::last()) }
 
 pub trait FileMethods {
     fn read(&self, _buf: &mut [u8]) -> Result<usize> { unimplemented!() }
@@ -268,18 +257,7 @@ lazy_static! {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use libc::AF_INET;
     use std::mem;
-
-    #[test]
-    fn drop_tcp() {
-        let _fd = File::new_tcp_socket(AF_INET).unwrap();
-    }
-
-    #[test]
-    fn drop_udp() {
-        let _fd = File::new_udp_socket(AF_INET).unwrap();
-    }
 
     fn pipe_test(reader: File, writer: File) {
         static TEST: &'static str = "Testing…";
