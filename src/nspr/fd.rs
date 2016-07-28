@@ -268,7 +268,6 @@ lazy_static! {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use super::FileMethods;
     use libc::AF_INET;
     use std::mem;
 
@@ -282,12 +281,10 @@ mod tests {
         let _fd = File::new_udp_socket(AF_INET).unwrap();
     }
 
-    #[test]
-    fn pipe_rdwr() {
+    fn pipe_test(reader: File, writer: File) {
         static TEST: &'static str = "Testing…";
-        let (reader, writer) = File::new_pipe().unwrap();
-        assert_eq!(writer.write(TEST.as_bytes()).unwrap(), TEST.len());
 
+        assert_eq!(writer.write(TEST.as_bytes()).unwrap(), TEST.len());
         let mut read_buf = vec![0u8; TEST.len()];
         assert_eq!(reader.read(&mut read_buf[..4]).unwrap(), 4);
         assert_eq!(&read_buf[..4], "Test".as_bytes());
@@ -295,5 +292,29 @@ mod tests {
         assert_eq!(read_buf, TEST.as_bytes());
         mem::drop(writer);
         assert_eq!(reader.read(&mut read_buf).unwrap(), 0);
+    }
+
+    #[test]
+    fn pipe_rdwr() {
+        let (reader, writer) = File::new_pipe().unwrap();
+        pipe_test(reader, writer);
+    }
+
+    #[test]
+    fn wrapped_pipe_rdwr() {
+        let wrapper = FileWrapper::new(PR_DESC_PIPE);
+        let (reader, writer) = File::new_pipe().unwrap();
+        pipe_test(wrapper.wrap(reader), wrapper.wrap(writer));
+    }
+
+    #[test]
+    fn very_wrapped_pipe_rdwr() {
+        let wrapper = FileWrapper::new(PR_DESC_PIPE);
+        let (mut reader, mut writer) = File::new_pipe().unwrap();
+        for _ in 0..100 {
+            reader = wrapper.wrap(reader);
+            writer = wrapper.wrap(writer);
+        }
+        pipe_test(reader, writer);
     }
 }
