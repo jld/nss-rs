@@ -5,4 +5,5 @@ authors = ["Jed Davis <jld@mozilla.com>"]
 
 [dependencies]
 nss-sys = { version = "*", path = "nss-sys" }
+lazy_static = "0.2.1"
 libc = "0.2"

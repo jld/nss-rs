@@ -523,6 +523,8 @@ extern "C" {
     // The "error text" facility seems to be used only by
     // PR_LoadLibrary (and only on BeOS?), so not binding it.
 
+    pub fn PR_GetUniqueIdentity(layer_name: *const c_char) -> PRDescIdentity;
+
     pub fn PR_Close(fd: *mut PRFileDesc) -> PRStatus;
     pub fn PR_Read(fd: *mut PRFileDesc, buf: *mut c_void, amount: PRInt32) -> PRInt32;
     pub fn PR_Write(fd: *mut PRFileDesc, buf: *const c_void, amount: PRInt32) -> PRInt32;
