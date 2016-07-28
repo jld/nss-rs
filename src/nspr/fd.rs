@@ -1,5 +1,5 @@
 use libc::{c_int, c_void};
-use nss_sys::nspr as sys;
+use nss_sys::nspr as ffi;
 use std::ffi::CString;
 use std::i32;
 use std::marker::PhantomData;
@@ -10,7 +10,7 @@ use std::sync::Arc;
 use ::Error;
 use ::Result;
 
-pub type RawFile = *mut sys::PRFileDesc;
+pub type RawFile = *mut ffi::PRFileDesc;
 
 pub struct File(RawFile);
 unsafe impl Send for File { }
@@ -20,7 +20,7 @@ impl Drop for File {
     fn drop(&mut self) {
         let fd = mem::replace(&mut self.0, null());
         if fd != null() {
-            let _status = unsafe { sys::PR_Close(fd) };
+            let _status = unsafe { ffi::PR_Close(fd) };
         }
     }
 }
@@ -59,21 +59,21 @@ impl File {
     // Should these be in a different module?  (Or here at all?)
     pub fn new_tcp_socket(af: c_int) -> Result<Self> {
         super::init();
-        unsafe { Self::from_raw_prfd_err(sys::PR_OpenTCPSocket(af)) }
+        unsafe { Self::from_raw_prfd_err(ffi::PR_OpenTCPSocket(af)) }
     }
     pub fn new_udp_socket(af: c_int) -> Result<Self> {
         super::init();
-        unsafe { Self::from_raw_prfd_err(sys::PR_OpenUDPSocket(af)) }
+        unsafe { Self::from_raw_prfd_err(ffi::PR_OpenUDPSocket(af)) }
     }
     pub fn new_pipe() -> Result<(File, File)> {
         super::init();
         let mut reader = null();
         let mut writer = null();
         unsafe {
-            match sys::PR_CreatePipe(&mut reader, &mut writer) {
-                sys::PR_SUCCESS => Ok((Self::from_raw_prfd(reader),
+            match ffi::PR_CreatePipe(&mut reader, &mut writer) {
+                ffi::PR_SUCCESS => Ok((Self::from_raw_prfd(reader),
                                   Self::from_raw_prfd(writer))),
-                sys::PR_FAILURE => failed()
+                ffi::PR_FAILURE => failed()
             }
         }
     }
@@ -91,13 +91,13 @@ impl FileMethods for File {
     fn read(&self, buf: &mut [u8]) -> Result<usize> {
         assert!(buf.len() <= i32::MAX as usize);
         result_of_len32(unsafe {
-            sys::PR_Read(self.as_raw_prfd(), buf.as_mut_ptr() as *mut c_void, buf.len() as i32)
+            ffi::PR_Read(self.as_raw_prfd(), buf.as_mut_ptr() as *mut c_void, buf.len() as i32)
         })
     }
     fn write(&self, buf: &[u8]) -> Result<usize> {
         assert!(buf.len() <= i32::MAX as usize);
         result_of_len32(unsafe {
-            sys::PR_Write(self.as_raw_prfd(), buf.as_ptr() as *const c_void, buf.len() as i32)
+            ffi::PR_Write(self.as_raw_prfd(), buf.as_ptr() as *const c_void, buf.len() as i32)
         })
     }
 }
@@ -110,26 +110,26 @@ fn result_of_len32(rv: i32) -> Result<usize> {
     }
 }
 
-pub type FileType = sys::PRDescType;
+pub type FileType = ffi::PRDescType;
 pub use nss_sys::nspr::{PR_DESC_FILE, PR_DESC_SOCKET_TCP, PR_DESC_SOCKET_UDP, PR_DESC_LAYERED,
                         PR_DESC_PIPE};
 
 pub struct FileWrapper<Inner>
     where Inner: FileMethods + Send + Sync {
-    methods_ref: Arc<sys::PRIOMethods>,
+    methods_ref: Arc<ffi::PRIOMethods>,
     phantom: PhantomData<Fn(Inner)>,
 }
 
 struct WrappedFile<Inner>
     where Inner: FileMethods + Send + Sync {
-    prfd: sys::PRFileDesc,
-    _methods_ref: Arc<sys::PRIOMethods>,
+    prfd: ffi::PRFileDesc,
+    _methods_ref: Arc<ffi::PRIOMethods>,
     inner: Inner,
 }
 
 impl<Inner> FileWrapper<Inner> where Inner: FileMethods + Send + Sync {
     pub fn new(file_type: FileType) -> Self {
-        let methods = sys::PRIOMethods {
+        let methods = ffi::PRIOMethods {
             file_type: file_type,
             close: Some(wrapper_methods::close::<Inner>),
             read: Some(wrapper_methods::read::<Inner>),
@@ -177,7 +177,7 @@ impl<Inner> FileWrapper<Inner> where Inner: FileMethods + Send + Sync {
     pub fn wrap(&self, inner: Inner) -> File {
         let methods_raw = self.methods_ref.deref() as *const _;
         let mut boxed = Box::new(WrappedFile {
-            prfd: sys::PRFileDesc {
+            prfd: ffi::PRFileDesc {
                 methods: methods_raw,
                 secret: ptr::null_mut(),
                 lower: ptr::null_mut(),
@@ -190,7 +190,7 @@ impl<Inner> FileWrapper<Inner> where Inner: FileMethods + Send + Sync {
         });
         unsafe {
             let raw = &mut boxed.prfd as RawFile;
-            (*raw).secret = Box::into_raw(boxed) as *mut sys::PRFilePrivate;
+            (*raw).secret = Box::into_raw(boxed) as *mut ffi::PRFilePrivate;
             File::from_raw_prfd(raw)
         }
     }
@@ -257,10 +257,10 @@ mod wrapper_methods {
 }
 
 lazy_static! {
-    static ref WRAPPED_FILE_IDENT: sys::PRDescIdentity = {
+    static ref WRAPPED_FILE_IDENT: ffi::PRDescIdentity = {
         super::init();
         let name = CString::new("Rust").unwrap();
-        unsafe { sys::PR_GetUniqueIdentity(name.as_ptr()) }
+        unsafe { ffi::PR_GetUniqueIdentity(name.as_ptr()) }
     };
 }
 

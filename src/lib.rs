@@ -4,20 +4,20 @@ extern crate libc;
 extern crate nss_sys;
 pub mod nspr;
 
-use nss_sys as sys;
+use nss_sys as ffi;
 use std::ptr;
 use std::result;
 
 pub type Error = nspr::Error;
 pub type Result<T> = result::Result<T, Error>;
 
-fn status_to_result(status: sys::SECStatus) -> Result<()> {
+fn status_to_result(status: ffi::SECStatus) -> Result<()> {
     // Must call this immediately after the NSS operation so that the
     // thread-local error state isn't stale.
     match status {
-        sys::SECSuccess => Ok(()),
-        sys::SECFailure => Err(Error::last()),
-        sys::SECWouldBlock => Err(nspr::error::PR_WOULD_BLOCK_ERROR.into()),
+        ffi::SECSuccess => Ok(()),
+        ffi::SECFailure => Err(Error::last()),
+        ffi::SECWouldBlock => Err(nspr::error::PR_WOULD_BLOCK_ERROR.into()),
     }
 }
 
@@ -33,7 +33,7 @@ macro_rules! nss_try {
 
 pub fn init() -> Result<()> {
     nspr::init();
-    nss_try!(sys::NSS_NoDB_Init(ptr::null()));
+    nss_try!(ffi::NSS_NoDB_Init(ptr::null()));
     Ok(())
 }
 
