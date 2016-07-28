@@ -1,3 +1,4 @@
+use libc::c_int;
 use nss_sys::nspr as sys;
 use std::mem;
 use std::ptr;
@@ -50,11 +51,11 @@ impl File {
         }
     }
 
-    pub fn new_tcp_socket(af: ::libc::c_int) -> Result<Self> {
+    pub fn new_tcp_socket(af: c_int) -> Result<Self> {
         super::init();
         unsafe { Self::from_raw_prfd_err(sys::PR_OpenTCPSocket(af)) }
     }
-    pub fn new_udp_socket(af: ::libc::c_int) -> Result<Self> {
+    pub fn new_udp_socket(af: c_int) -> Result<Self> {
         super::init();
         unsafe { Self::from_raw_prfd_err(sys::PR_OpenUDPSocket(af)) }
     }
@@ -65,16 +66,15 @@ fn null() -> RawFile { ptr::null_mut() }
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ::nspr::init;
-    use ::libc;
+    use libc::AF_INET;
 
     #[test]
     fn drop_tcp() {
-        let _fd = File::new_tcp_socket(libc::AF_INET).unwrap();
+        let _fd = File::new_tcp_socket(AF_INET).unwrap();
     }
 
     #[test]
     fn drop_udp() {
-        let _fd = File::new_udp_socket(libc::AF_INET).unwrap();
+        let _fd = File::new_udp_socket(AF_INET).unwrap();
     }
 }
