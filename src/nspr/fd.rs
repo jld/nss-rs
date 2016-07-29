@@ -24,30 +24,29 @@ impl Drop for File {
     }
 }
 
-// Should any/all of these be `pub`?
 #[allow(dead_code)]
 impl File {
-    fn into_raw_prfd(self) -> RawFile {
+    pub fn into_raw_prfd(self) -> RawFile {
         let fd = self.as_raw_prfd();
         mem::forget(self);
         fd
     }
-    fn as_raw_prfd(&self) -> RawFile {
+    pub fn as_raw_prfd(&self) -> RawFile {
         debug_assert!(self.0 != null());
         self.0
     }
-    unsafe fn from_raw_prfd(fd: RawFile) -> Self {
+    pub unsafe fn from_raw_prfd(fd: RawFile) -> Self {
         assert!(fd != null());
         File(fd)
     }
-    unsafe fn from_raw_prfd_opt(fd: RawFile) -> Option<Self> {
+    pub unsafe fn from_raw_prfd_opt(fd: RawFile) -> Option<Self> {
         if fd == null() {
             None
         } else {
             Some(Self::from_raw_prfd(fd))
         }
     }
-    unsafe fn from_raw_prfd_err(fd: RawFile) -> Result<Self> {
+    pub unsafe fn from_raw_prfd_err(fd: RawFile) -> Result<Self> {
         if fd == null() {
             failed()
         } else {

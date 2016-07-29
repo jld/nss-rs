@@ -1,5 +1,6 @@
 pub mod error;
 pub mod fd;
+pub mod net;
 
 use nss_sys::nspr as sys;
 use std::sync::{Once, ONCE_INIT};
