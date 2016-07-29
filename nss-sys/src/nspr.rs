@@ -528,6 +528,8 @@ extern "C" {
     pub fn PR_Close(fd: *mut PRFileDesc) -> PRStatus;
     pub fn PR_Read(fd: *mut PRFileDesc, buf: *mut c_void, amount: PRInt32) -> PRInt32;
     pub fn PR_Write(fd: *mut PRFileDesc, buf: *const c_void, amount: PRInt32) -> PRInt32;
+    pub fn PR_GetSockName(fd: *mut PRFileDesc, addr: *mut PRNetAddr) -> PRStatus;
+    pub fn PR_GetPeerName(fd: *mut PRFileDesc, addr: *mut PRNetAddr) -> PRStatus;
 
     pub fn PR_CreatePipe(readPipe: *mut *mut PRFileDesc, writePipe: *mut *mut PRFileDesc)
                          -> PRStatus;

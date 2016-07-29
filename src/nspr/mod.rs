@@ -2,7 +2,9 @@ pub mod error;
 pub mod fd;
 pub mod net;
 
-use nss_sys::nspr as sys;
+use nss_sys::nspr as ffi;
+use nspr::error::{Result, failed};
+
 use std::sync::{Once, ONCE_INIT};
 
 pub use self::error::Error;
@@ -19,7 +21,22 @@ pub fn init() {
         // These argument values haven't been used since before NSPR
         // was released as open source, but fill in something reasonable.
         unsafe {
-            sys::PR_Init(sys::PR_SYSTEM_THREAD, sys::PR_PRIORITY_NORMAL, 0);
+            ffi::PR_Init(ffi::PR_SYSTEM_THREAD, ffi::PR_PRIORITY_NORMAL, 0);
         }
     });
+}
+
+fn result_len32(rv: i32) -> Result<usize> {
+    if rv >= 0 {
+        Ok(rv as usize)
+    } else {
+        failed()
+    }
+}
+
+fn result_prstatus(rv: ffi::PRStatus) -> Result<()> {
+    match rv {
+        ffi::PR_SUCCESS => Ok(()),
+        ffi::PR_FAILURE => failed(),
+    }
 }

@@ -2,6 +2,7 @@ use nss_sys::nspr as sys;
 use std::error;
 use std::fmt;
 use std::io;
+use std::result;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub struct ErrorCode(sys::PRErrorCode);
@@ -108,6 +109,9 @@ impl From<io::Error> for Error {
         }
     }
 }
+
+pub type Result<T> = result::Result<T, Error>;
+pub fn failed<T>() -> Result<T> { Err(Error::last()) }
 
 nspr_errors! {
     PR_OUT_OF_MEMORY_ERROR =      "Memory allocation attempt failed",

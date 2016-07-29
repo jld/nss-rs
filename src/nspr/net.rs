@@ -1,12 +1,20 @@
-use libc::{c_int, c_void, AF_INET, AF_INET6};
+use libc::{c_int, AF_INET, AF_INET6};
 use nss_sys::nspr as ffi;
 use std::net::{SocketAddr,SocketAddrV4,SocketAddrV6,Ipv4Addr,Ipv6Addr};
 use std::mem;
 use std::u16;
+use nspr::error::Result;
 use nspr::fd::File;
-use ::{Result,Error,failed};
 
-pub unsafe fn read_addr(ptr: *const ffi::PRNetAddr) -> Option<SocketAddr> {
+// FIXME is this going to be a "strict aliasing" problem?
+pub struct NetAddrStorage(ffi::PRNetAddrInet6);
+impl NetAddrStorage {
+    pub fn new() -> Self { unsafe { mem::uninitialized() } }
+    pub fn as_ptr(&self) -> *const ffi::PRNetAddr { self as *const NetAddrStorage as *const _ }
+    pub fn as_mut_ptr(&mut self) -> *mut ffi::PRNetAddr { self as *mut NetAddrStorage as *mut _ }
+}
+
+pub unsafe fn read_net_addr(ptr: *const ffi::PRNetAddr) -> Option<SocketAddr> {
     // This is kind of ridiculous given that they're almost the same structure internally....
     let family = (*(ptr as *const ffi::PRNetAddrRaw)).family;
     if family == AF_INET as u16 {
@@ -29,7 +37,7 @@ pub unsafe fn read_addr(ptr: *const ffi::PRNetAddr) -> Option<SocketAddr> {
     }
 }
 
-pub unsafe fn write_addr(ptr: *mut ffi::PRNetAddr, addr: SocketAddr) {
+pub unsafe fn write_net_addr(ptr: *mut ffi::PRNetAddr, addr: SocketAddr) {
     match addr {
         SocketAddr::V4(addr) => {
             *(ptr as *mut _) = ffi::PRNetAddrInet {
@@ -88,8 +96,8 @@ mod tests {
         let mut buf = vec![0u8; mem::size_of::<ffi::PRNetAddrInet>()];
         let addr = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(127, 128, 129, 130), 443));
 
-        unsafe { write_addr(buf.as_mut_ptr() as *mut ffi::PRNetAddr, addr) };
-        let got_addr = (unsafe { read_addr(buf.as_ptr() as *const ffi::PRNetAddr)}).unwrap();
+        unsafe { write_net_addr(buf.as_mut_ptr() as *mut ffi::PRNetAddr, addr) };
+        let got_addr = (unsafe { read_net_addr(buf.as_ptr() as *const ffi::PRNetAddr)}).unwrap();
         assert_eq!(got_addr, addr);
     }
 
@@ -100,8 +108,8 @@ mod tests {
                                                                   0x809, 0xa0b, 0xc0d, 0xe0f),
                                                     8080, 0x23456, 0x23456789));
         
-        unsafe { write_addr(buf.as_mut_ptr() as *mut ffi::PRNetAddr, addr) };
-        let got_addr = (unsafe { read_addr(buf.as_ptr() as *const ffi::PRNetAddr)}).unwrap();
+        unsafe { write_net_addr(buf.as_mut_ptr() as *mut ffi::PRNetAddr, addr) };
+        let got_addr = (unsafe { read_net_addr(buf.as_ptr() as *const ffi::PRNetAddr)}).unwrap();
         assert_eq!(got_addr, addr);
     }
     
