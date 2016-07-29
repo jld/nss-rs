@@ -5,6 +5,7 @@ extern crate libc;
 pub mod nspr;
 
 use libc::c_char;
+use nspr::PRFileDesc;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[repr(C)]
@@ -18,6 +19,7 @@ pub use self::SECStatus::*;
 extern "C" {
     pub fn NSS_NoDB_Init(_configdir: *const c_char) -> SECStatus;
     pub fn NSS_SetDomesticPolicy() -> SECStatus;
+    pub fn SSL_ImportFD(model: *mut PRFileDesc, fd: *mut PRFileDesc) -> *mut PRFileDesc;
 }
 
 

@@ -68,7 +68,7 @@ impl File {
     }
 }
 
-fn null() -> RawFile { ptr::null_mut() }
+pub fn null() -> RawFile { ptr::null_mut() }
 
 pub trait FileMethods {
     fn read(&self, buf: &mut [u8]) -> Result<usize>;
