@@ -1,0 +1,8 @@
+[package]
+name = "nss-hyper"
+version = "0.1.0"
+authors = ["Jed Davis <jld@mozilla.com>"]
+
+[dependencies]
+nss = { version = "*", path = ".." }
+hyper = "0.9.10"

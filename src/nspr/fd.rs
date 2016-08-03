@@ -84,6 +84,7 @@ pub trait FileMethods {
     fn connect(&self, _addr: SocketAddr, _timeout: Option<Duration>) -> Result<()> {
         unimplemented!()
     }
+    // FIXME: use a special enum for peek, not bool.
     fn recv(&self, _buf: &mut [u8], _peek: bool, _timeout: Option<Duration>) -> Result<usize> {
         unimplemented!()
     }
