@@ -160,7 +160,7 @@ impl<Inner> FileWrapper<Inner> where Inner: FileMethods + Send + Sync {
             acceptread: None,
             transmitfile: None,
             getsockname: Some(wrapper_methods::getsockname::<Inner>),
-            getpeername: None,
+            getpeername: Some(wrapper_methods::getpeername::<Inner>),
             reserved_fn_6: None,
             reserved_fn_5: None,
             getsocketoption: None,
@@ -179,7 +179,10 @@ impl<Inner> FileWrapper<Inner> where Inner: FileMethods + Send + Sync {
         }
     }
 
-    pub fn wrap(&self, inner: Inner) -> File {
+    // FIXME: should the 'static be higher?
+    // FIXME: should File<> be parameterized to allow non-'static backends?
+    // (That would also allow non-Sync backends....)
+    pub fn wrap(&self, inner: Inner) -> File where Inner: 'static {
         let methods_raw = self.methods_ref.deref() as *const _;
         let mut boxed = Box::new(WrappedFile {
             prfd: ffi::PRFileDesc {
@@ -267,6 +270,17 @@ mod wrapper_methods {
     {
         let this = get_secret::<Inner>(fd);
         match this.inner.getsockname() {
+            Ok(rust_addr) => { write_net_addr(addr, rust_addr); PR_SUCCESS },
+            Err(err) => { err.set(); PR_FAILURE },
+        }
+    }
+
+    pub unsafe extern "C" fn getpeername<Inner>(fd: *mut PRFileDesc,
+                                                addr: *mut PRNetAddr) -> PRStatus
+        where Inner: FileMethods + Send + Sync
+    {
+        let this = get_secret::<Inner>(fd);
+        match this.inner.getpeername() {
             Ok(rust_addr) => { write_net_addr(addr, rust_addr); PR_SUCCESS },
             Err(err) => { err.set(); PR_FAILURE },
         }
