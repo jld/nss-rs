@@ -1,6 +1,7 @@
 pub mod error;
 pub mod fd;
 pub mod net;
+pub mod time;
 
 use nss_sys::nspr as ffi;
 use nspr::error::{Result, failed};

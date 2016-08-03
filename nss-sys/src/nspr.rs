@@ -380,6 +380,9 @@ pub struct PRLinger {
 }
 
 pub type PRIntervalTime = PRUint32;
+pub const PR_INTERVAL_NO_WAIT: PRIntervalTime = 0;
+pub const PR_INTERVAL_NO_TIMEOUT: PRIntervalTime = 0xffffffff;
+
 pub type PRTime = PRInt64;
 
 // This is a union-of-structs, which matches the original behavior for
@@ -511,6 +514,8 @@ pub enum PRThreadPriority
 }
 pub use self::PRThreadPriority::*;
 
+pub const PR_MSG_PEEK: PRIntn = 0x2;
+
 extern "C" {
     // N.B. None of these arguments are used.
     pub fn PR_Init(_type: PRThreadType,
@@ -524,10 +529,15 @@ extern "C" {
     // PR_LoadLibrary (and only on BeOS?), so not binding it.
 
     pub fn PR_GetUniqueIdentity(layer_name: *const c_char) -> PRDescIdentity;
+    pub fn PR_TicksPerSecond() -> PRUint32;
 
     pub fn PR_Close(fd: *mut PRFileDesc) -> PRStatus;
     pub fn PR_Read(fd: *mut PRFileDesc, buf: *mut c_void, amount: PRInt32) -> PRInt32;
     pub fn PR_Write(fd: *mut PRFileDesc, buf: *const c_void, amount: PRInt32) -> PRInt32;
+    pub fn PR_Recv(fd: *mut PRFileDesc, buf: *mut c_void, amount: PRInt32, flags: PRIntn,
+                   timeout: PRIntervalTime) -> PRInt32;
+    pub fn PR_Send(fd: *mut PRFileDesc, buf: *const c_void, amount: PRInt32, flags: PRIntn,
+                   timeout: PRIntervalTime) -> PRInt32;
     pub fn PR_GetSockName(fd: *mut PRFileDesc, addr: *mut PRNetAddr) -> PRStatus;
     pub fn PR_GetPeerName(fd: *mut PRFileDesc, addr: *mut PRNetAddr) -> PRStatus;
 

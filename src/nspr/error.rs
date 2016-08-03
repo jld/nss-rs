@@ -1,25 +1,25 @@
-use nss_sys::nspr as sys;
+use nss_sys::nspr as ffi;
 use std::error;
 use std::fmt;
 use std::io;
 use std::result;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-pub struct ErrorCode(sys::PRErrorCode);
+pub struct ErrorCode(ffi::PRErrorCode);
 
 impl ErrorCode {
     pub fn last() -> Self {
-        ErrorCode(unsafe { sys::PR_GetError() })
+        ErrorCode(unsafe { ffi::PR_GetError() })
     }
 }
 
 macro_rules! nspr_errors {
     { $($name:ident = $desc:expr),* } => {
-        $(pub const $name: ErrorCode = ErrorCode(sys::$name);)*
+        $(pub const $name: ErrorCode = ErrorCode(ffi::$name);)*
         impl fmt::Debug for ErrorCode {
             fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
                 match self.0 {
-                    $(sys::$name => f.write_str(stringify!($name))),*,
+                    $(ffi::$name => f.write_str(stringify!($name))),*,
                     other => write!(f, "ErrorCode({})", other),
                 }
             }
@@ -32,7 +32,7 @@ macro_rules! nspr_errors {
         impl error::Error for ErrorCode {
             fn description(&self) -> &str {
                 match self.0 {
-                    $(sys::$name => $desc),*,
+                    $(ffi::$name => $desc),*,
                     _ => "Unknown error"
                 }
             }
@@ -49,8 +49,8 @@ macro_rules! error_kinds {
             // FIXME: should this be Into, or is it too lossy?
             pub fn kind(&self) -> io::ErrorKind {
                 match self.0 {
-                    $(sys::$pr_name => io::ErrorKind::$ek_name
-                      $(, sys::$pr_alias => io::ErrorKind::$ek_name)*),*,
+                    $(ffi::$pr_name => io::ErrorKind::$ek_name
+                      $(, ffi::$pr_alias => io::ErrorKind::$ek_name)*),*,
                     _ => io::ErrorKind::Other,
                 }
             }
@@ -76,12 +76,12 @@ impl Error {
     pub fn last() -> Self {
         Error {
             nspr_error: ErrorCode::last(),
-            os_error: unsafe { sys::PR_GetOSError() },
+            os_error: unsafe { ffi::PR_GetOSError() },
         }
     }
     pub fn set(self) {
         unsafe {
-            sys::PR_SetError(self.nspr_error.0, self.os_error);
+            ffi::PR_SetError(self.nspr_error.0, self.os_error);
         }
     }
 }

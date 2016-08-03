@@ -8,9 +8,11 @@ use std::net::SocketAddr;
 use std::ops::Deref;
 use std::ptr;
 use std::sync::Arc;
+use std::time::Duration;
 use nspr::{result_len32, result_prstatus};
 use nspr::error::{Result, failed, PR_INVALID_METHOD_ERROR, PR_ADDRESS_NOT_SUPPORTED_ERROR};
 use nspr::net::{NetAddrStorage, read_net_addr};
+use nspr::time::duration_opt_to_nspr;
 
 pub type RawFile = *mut ffi::PRFileDesc;
 
@@ -71,10 +73,24 @@ impl File {
 pub fn null() -> RawFile { ptr::null_mut() }
 
 pub trait FileMethods {
-    fn read(&self, buf: &mut [u8]) -> Result<usize>;
-    fn write(&self, buf: &[u8]) -> Result<usize>;
-    fn getsockname(&self) -> Result<SocketAddr> { Err(PR_INVALID_METHOD_ERROR.into()) }
-    fn getpeername(&self) -> Result<SocketAddr> { Err(PR_INVALID_METHOD_ERROR.into()) }
+    fn read(&self, _buf: &mut [u8]) -> Result<usize> {
+        Err(PR_INVALID_METHOD_ERROR.into())
+    }
+    fn write(&self, _buf: &[u8]) -> Result<usize> {
+        Err(PR_INVALID_METHOD_ERROR.into())
+    }
+    fn recv(&self, _buf: &mut [u8], _peek: bool, _timeout: Option<Duration>) -> Result<usize> {
+        Err(PR_INVALID_METHOD_ERROR.into())
+    }
+    fn send(&self, _buf: &[u8], _timeout: Option<Duration>) -> Result<usize> {
+        Err(PR_INVALID_METHOD_ERROR.into())
+    }
+    fn getsockname(&self) -> Result<SocketAddr> {
+        Err(PR_INVALID_METHOD_ERROR.into())
+    }
+    fn getpeername(&self) -> Result<SocketAddr> {
+        Err(PR_INVALID_METHOD_ERROR.into())
+    }
 }
 
 impl FileMethods for File {
@@ -89,6 +105,24 @@ impl FileMethods for File {
         assert!(buf.len() <= i32::MAX as usize);
         result_len32(unsafe {
             ffi::PR_Write(self.as_raw_prfd(), buf.as_ptr() as *const c_void, buf.len() as i32)
+        })
+    }
+
+    fn recv(&self, buf: &mut [u8], peek: bool, timeout: Option<Duration>) -> Result<usize> {
+        assert!(buf.len() <= i32::MAX as usize);
+        let flags = if peek { ffi::PR_MSG_PEEK } else { 0 };
+        result_len32(unsafe {
+            ffi::PR_Recv(self.as_raw_prfd(), buf.as_mut_ptr() as *mut c_void, buf.len() as i32,
+                         flags, duration_opt_to_nspr(timeout))
+        })
+    }
+
+    fn send(&self, buf: &[u8], timeout: Option<Duration>) -> Result<usize> {
+        assert!(buf.len() <= i32::MAX as usize);
+        let flags = 0;
+        result_len32(unsafe {
+            ffi::PR_Send(self.as_raw_prfd(), buf.as_ptr() as *const c_void, buf.len() as i32,
+                         flags, duration_opt_to_nspr(timeout))
         })
     }
 
@@ -152,8 +186,8 @@ impl<Inner> FileWrapper<Inner> where Inner: FileMethods + Send + Sync {
             bind: None,
             listen: None,
             shutdown: None,
-            recv: None,
-            send: None,
+            recv: Some(wrapper_methods::recv::<Inner>),
+            send: Some(wrapper_methods::send::<Inner>),
             recvfrom: None,
             sendto: None,
             poll: None,
@@ -207,8 +241,10 @@ impl<Inner> FileWrapper<Inner> where Inner: FileMethods + Send + Sync {
 mod wrapper_methods {
     use super::{FileMethods, WrappedFile, WRAPPED_FILE_IDENT};
     use libc::c_void;
-    use nss_sys::nspr::{PRFileDesc, PRNetAddr, PRStatus, PR_SUCCESS, PR_FAILURE, PRInt32};
+    use nss_sys::nspr::{PRFileDesc, PRNetAddr, PRStatus, PRInt32, PRIntn, PRIntervalTime,
+                        PR_SUCCESS, PR_FAILURE, PR_MSG_PEEK};
     use nspr::net::write_net_addr;
+    use nspr::time::duration_opt_from_nspr;
     use std::mem;
     use std::slice;
 
@@ -283,6 +319,39 @@ mod wrapper_methods {
         match this.inner.getpeername() {
             Ok(rust_addr) => { write_net_addr(addr, rust_addr); PR_SUCCESS },
             Err(err) => { err.set(); PR_FAILURE },
+        }
+    }
+
+    pub unsafe extern "C" fn recv<Inner>(fd: *mut PRFileDesc,
+                                         buf: *mut c_void,
+                                         amount: PRInt32,
+                                         flags: PRIntn,
+                                         timeout: PRIntervalTime) -> PRInt32
+        where Inner: FileMethods + Send + Sync
+    {
+        let this = get_secret::<Inner>(fd);
+        assert!(amount >= 0);
+        let peek = flags & PR_MSG_PEEK != 0;
+        match this.inner.recv(slice::from_raw_parts_mut(buf as *mut u8, amount as usize),
+                              peek, duration_opt_from_nspr(timeout)) {
+            Ok(len) => { assert!(len <= amount as usize); len as PRInt32 },
+            Err(err) => { err.set(); -1 }
+        }
+    }
+
+    pub unsafe extern "C" fn send<Inner>(fd: *mut PRFileDesc,
+                                         buf: *const c_void,
+                                         amount: PRInt32,
+                                         _flags: PRIntn,
+                                         timeout: PRIntervalTime) -> PRInt32
+        where Inner: FileMethods + Send + Sync
+    {
+        let this = get_secret::<Inner>(fd);
+        assert!(amount >= 0);
+        match this.inner.send(slice::from_raw_parts(buf as *mut u8, amount as usize),
+                              duration_opt_from_nspr(timeout)) {
+            Ok(len) => { assert!(len <= amount as usize); len as PRInt32 },
+            Err(err) => { err.set(); -1 }
         }
     }
 }
