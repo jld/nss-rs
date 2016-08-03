@@ -534,6 +534,8 @@ extern "C" {
     pub fn PR_Close(fd: *mut PRFileDesc) -> PRStatus;
     pub fn PR_Read(fd: *mut PRFileDesc, buf: *mut c_void, amount: PRInt32) -> PRInt32;
     pub fn PR_Write(fd: *mut PRFileDesc, buf: *const c_void, amount: PRInt32) -> PRInt32;
+    pub fn PR_Connect(fd: *mut PRFileDesc, addr: *const PRNetAddr, timeout: PRIntervalTime)
+                      -> PRStatus;
     pub fn PR_Recv(fd: *mut PRFileDesc, buf: *mut c_void, amount: PRInt32, flags: PRIntn,
                    timeout: PRIntervalTime) -> PRInt32;
     pub fn PR_Send(fd: *mut PRFileDesc, buf: *const c_void, amount: PRInt32, flags: PRIntn,

@@ -10,8 +10,8 @@ use std::ptr;
 use std::sync::Arc;
 use std::time::Duration;
 use nspr::{result_len32, result_prstatus};
-use nspr::error::{Result, failed, PR_INVALID_METHOD_ERROR, PR_ADDRESS_NOT_SUPPORTED_ERROR};
-use nspr::net::{NetAddrStorage, read_net_addr};
+use nspr::error::{Result, failed, PR_ADDRESS_NOT_SUPPORTED_ERROR};
+use nspr::net::{NetAddrStorage, read_net_addr, write_net_addr};
 use nspr::time::duration_opt_to_nspr;
 
 pub type RawFile = *mut ffi::PRFileDesc;
@@ -24,6 +24,8 @@ impl Drop for File {
     fn drop(&mut self) {
         let fd = mem::replace(&mut self.0, null());
         if fd != null() {
+            // FIXME: this can deadlock in case of panic while holding NSPR locks
+            // (e.g., NSS with panic in Rust-implemented lower layer)
             let _status = unsafe { ffi::PR_Close(fd) };
         }
     }
@@ -74,22 +76,25 @@ pub fn null() -> RawFile { ptr::null_mut() }
 
 pub trait FileMethods {
     fn read(&self, _buf: &mut [u8]) -> Result<usize> {
-        Err(PR_INVALID_METHOD_ERROR.into())
+        unimplemented!()
     }
     fn write(&self, _buf: &[u8]) -> Result<usize> {
-        Err(PR_INVALID_METHOD_ERROR.into())
+        unimplemented!()
+    }
+    fn connect(&self, _addr: SocketAddr, _timeout: Option<Duration>) -> Result<()> {
+        unimplemented!()
     }
     fn recv(&self, _buf: &mut [u8], _peek: bool, _timeout: Option<Duration>) -> Result<usize> {
-        Err(PR_INVALID_METHOD_ERROR.into())
+        unimplemented!()
     }
     fn send(&self, _buf: &[u8], _timeout: Option<Duration>) -> Result<usize> {
-        Err(PR_INVALID_METHOD_ERROR.into())
+        unimplemented!()
     }
     fn getsockname(&self) -> Result<SocketAddr> {
-        Err(PR_INVALID_METHOD_ERROR.into())
+        unimplemented!()
     }
     fn getpeername(&self) -> Result<SocketAddr> {
-        Err(PR_INVALID_METHOD_ERROR.into())
+        unimplemented!()
     }
 }
 
@@ -105,6 +110,14 @@ impl FileMethods for File {
         assert!(buf.len() <= i32::MAX as usize);
         result_len32(unsafe {
             ffi::PR_Write(self.as_raw_prfd(), buf.as_ptr() as *const c_void, buf.len() as i32)
+        })
+    }
+
+    fn connect(&self, addr: SocketAddr, timeout: Option<Duration>) -> Result<()> {
+        let mut addrbuf = NetAddrStorage::new();
+        result_prstatus(unsafe {
+            write_net_addr(addrbuf.as_mut_ptr(), addr);
+            ffi::PR_Connect(self.as_raw_prfd(), addrbuf.as_ptr(), duration_opt_to_nspr(timeout))
         })
     }
 
@@ -181,7 +194,7 @@ impl<Inner> FileWrapper<Inner> where Inner: FileMethods + Send + Sync {
             fileInfo: None,
             fileInfo64: None,
             writev: None,
-            connect: None,
+            connect: Some(wrapper_methods::connect::<Inner>),
             accept: None,
             bind: None,
             listen: None,
@@ -243,7 +256,8 @@ mod wrapper_methods {
     use libc::c_void;
     use nss_sys::nspr::{PRFileDesc, PRNetAddr, PRStatus, PRInt32, PRIntn, PRIntervalTime,
                         PR_SUCCESS, PR_FAILURE, PR_MSG_PEEK};
-    use nspr::net::write_net_addr;
+    use nspr::error::PR_ADDRESS_NOT_SUPPORTED_ERROR;
+    use nspr::net::{read_net_addr, write_net_addr};
     use nspr::time::duration_opt_from_nspr;
     use std::mem;
     use std::slice;
@@ -300,24 +314,19 @@ mod wrapper_methods {
         }
     }
 
-    pub unsafe extern "C" fn getsockname<Inner>(fd: *mut PRFileDesc,
-                                                addr: *mut PRNetAddr) -> PRStatus
+    pub unsafe extern "C" fn connect<Inner>(fd: *mut PRFileDesc,
+                                            addr: *const PRNetAddr,
+                                            timeout: PRIntervalTime) -> PRStatus
         where Inner: FileMethods + Send + Sync
     {
         let this = get_secret::<Inner>(fd);
-        match this.inner.getsockname() {
-            Ok(rust_addr) => { write_net_addr(addr, rust_addr); PR_SUCCESS },
-            Err(err) => { err.set(); PR_FAILURE },
-        }
-    }
-
-    pub unsafe extern "C" fn getpeername<Inner>(fd: *mut PRFileDesc,
-                                                addr: *mut PRNetAddr) -> PRStatus
-        where Inner: FileMethods + Send + Sync
-    {
-        let this = get_secret::<Inner>(fd);
-        match this.inner.getpeername() {
-            Ok(rust_addr) => { write_net_addr(addr, rust_addr); PR_SUCCESS },
+        let status = if let Some(rust_addr) = read_net_addr(addr) {
+            this.inner.connect(rust_addr, duration_opt_from_nspr(timeout))
+        } else {
+            Err(PR_ADDRESS_NOT_SUPPORTED_ERROR.into())
+        };
+        match status {
+            Ok(()) => PR_SUCCESS,
             Err(err) => { err.set(); PR_FAILURE },
         }
     }
@@ -352,6 +361,28 @@ mod wrapper_methods {
                               duration_opt_from_nspr(timeout)) {
             Ok(len) => { assert!(len <= amount as usize); len as PRInt32 },
             Err(err) => { err.set(); -1 }
+        }
+    }
+
+    pub unsafe extern "C" fn getsockname<Inner>(fd: *mut PRFileDesc,
+                                                addr: *mut PRNetAddr) -> PRStatus
+        where Inner: FileMethods + Send + Sync
+    {
+        let this = get_secret::<Inner>(fd);
+        match this.inner.getsockname() {
+            Ok(rust_addr) => { write_net_addr(addr, rust_addr); PR_SUCCESS },
+            Err(err) => { err.set(); PR_FAILURE },
+        }
+    }
+
+    pub unsafe extern "C" fn getpeername<Inner>(fd: *mut PRFileDesc,
+                                                addr: *mut PRNetAddr) -> PRStatus
+        where Inner: FileMethods + Send + Sync
+    {
+        let this = get_secret::<Inner>(fd);
+        match this.inner.getpeername() {
+            Ok(rust_addr) => { write_net_addr(addr, rust_addr); PR_SUCCESS },
+            Err(err) => { err.set(); PR_FAILURE },
         }
     }
 }
