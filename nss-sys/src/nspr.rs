@@ -106,6 +106,8 @@ pub const PR_LIBRARY_NOT_LOADED_ERROR: PRErrorCode = -5926;
 pub const PR_CALL_ONCE_ERROR: PRErrorCode = -5925;
 pub const PR_MAX_ERROR: PRErrorCode = -5924;
 
+// FIXME: do something about SEC_ERROR_* (from -0x2000) and SSL_ERROR_* (from -0x3000)
+
 #[derive(Debug)]
 #[repr(C)]
 pub struct PRFileDesc {
@@ -342,11 +344,39 @@ pub struct PRIOVec {
     pub iov_len: c_int,
 }
 
-// This is a PRSockOption "discriminant" followed by a union; it's not
-// clear how best to glue it onto Rust so that the alignment padding
-// always works.  It would probably work to transmute to PRSockOption
-// to get the discriminant, then to `(usize, ActualPayload)` to get the
-pub enum PRSocketOptionData { }
+// This is really a PRSockOption "discriminant" followed by a union.
+// Rust can't directly represent this yet, so pointer arithmetic is needed.
+pub type PRSocketOptionData = PRSocketOptionCase<PRSocketOptionVoid>;
+pub enum PRSocketOptionVoid { }
+
+// This should be the same size as the enum + the alignment padding
+// before the union; use this with ptr::offset to get the option value
+// address.
+#[derive(Clone, Copy, Debug)]
+#[repr(C)]
+pub struct PRSocketOptionCase<T> {
+    padded_enum: PRSize,
+    pub value: T
+}
+impl<T> PRSocketOptionCase<T> {
+    pub fn new(which: PRSockOption, value: T) -> Self {
+        let mut padded_enum: PRSize = 0;
+        unsafe { *(&mut padded_enum as *mut PRSize as *mut PRSockOption) = which; }
+        PRSocketOptionCase {
+            padded_enum: padded_enum,
+            value: value
+        }
+    }
+    pub fn get_enum(&self) -> PRSockOption {
+        unsafe { *(&self.padded_enum as *const PRSize as *const PRSockOption) }
+    }
+    pub fn as_ptr(&self) -> *const PRSocketOptionData {
+        self as *const Self as *const PRSocketOptionData
+    }
+    pub fn as_mut_ptr(&mut self) -> *mut PRSocketOptionData {
+        self as *mut Self as *mut PRSocketOptionData
+    }
+}
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[repr(C)]
@@ -368,7 +398,6 @@ pub enum PRSockOption {
     PR_SockOpt_MaxSegment = 14,      // PRSize
     PR_SockOpt_Broadcast = 15,       // PRBool
     PR_SockOpt_Reuseport = 16,       // PRBool
-    PR_SockOpt_Last = 17,
 }
 pub use self::PRSockOption::*;
 
@@ -542,6 +571,8 @@ extern "C" {
                    timeout: PRIntervalTime) -> PRInt32;
     pub fn PR_GetSockName(fd: *mut PRFileDesc, addr: *mut PRNetAddr) -> PRStatus;
     pub fn PR_GetPeerName(fd: *mut PRFileDesc, addr: *mut PRNetAddr) -> PRStatus;
+    pub fn PR_GetSocketOption(fd: *mut PRFileDesc, data: *mut PRSocketOptionData) -> PRStatus;
+    pub fn PR_SetSocketOption(fd: *mut PRFileDesc, data: *const PRSocketOptionData) -> PRStatus;
 
     pub fn PR_CreatePipe(readPipe: *mut *mut PRFileDesc, writePipe: *mut *mut PRFileDesc)
                          -> PRStatus;

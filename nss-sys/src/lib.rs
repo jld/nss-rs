@@ -4,7 +4,7 @@
 extern crate libc;
 pub mod nspr;
 
-use libc::c_char;
+use libc::{c_char,c_void};
 use nspr::PRFileDesc;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -16,10 +16,14 @@ pub enum SECStatus {
 }
 pub use self::SECStatus::*;
 
+pub type SSLBadCertHandler =
+    Option<unsafe extern "C" fn (arg: *mut c_void, fd: *mut PRFileDesc) -> SECStatus>;
+
 extern "C" {
     pub fn NSS_NoDB_Init(_configdir: *const c_char) -> SECStatus;
     pub fn NSS_SetDomesticPolicy() -> SECStatus;
     pub fn SSL_ImportFD(model: *mut PRFileDesc, fd: *mut PRFileDesc) -> *mut PRFileDesc;
+    pub fn SSL_BadCertHook(fd: *mut PRFileDesc, f: SSLBadCertHandler, arg: *mut c_void) -> SECStatus;
 }
 
 

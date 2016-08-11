@@ -41,3 +41,19 @@ fn result_prstatus(rv: ffi::PRStatus) -> Result<()> {
         ffi::PR_FAILURE => failed(),
     }
 }
+
+fn bool_from_nspr(b: ffi::PRBool) -> bool {
+    match b {
+        ffi::PR_FALSE => false,
+        ffi::PR_TRUE => true,
+        _ => unreachable!(),
+    }
+}
+
+fn bool_to_nspr(b: bool) -> ffi::PRBool {
+    if b {
+        ffi::PR_TRUE
+    } else {
+        ffi::PR_FALSE
+    }
+}

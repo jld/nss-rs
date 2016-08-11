@@ -9,7 +9,7 @@ use std::ops::Deref;
 use std::ptr;
 use std::sync::Arc;
 use std::time::Duration;
-use nspr::{result_len32, result_prstatus};
+use nspr::{result_len32, result_prstatus, bool_from_nspr};
 use nspr::error::{Result, failed, PR_ADDRESS_NOT_SUPPORTED_ERROR};
 use nspr::net::{NetAddrStorage, read_net_addr, write_net_addr};
 use nspr::time::duration_opt_to_nspr;
@@ -97,6 +97,9 @@ pub trait FileMethods {
     fn getpeername(&self) -> Result<SocketAddr> {
         unimplemented!()
     }
+    fn get_nonblocking(&self) -> Result<bool> {
+        unimplemented!()
+    }
 }
 
 impl FileMethods for File {
@@ -161,6 +164,15 @@ impl FileMethods for File {
             None => Err(PR_ADDRESS_NOT_SUPPORTED_ERROR.into()),
         }
     }
+
+    fn get_nonblocking(&self) -> Result<bool> {
+        type OptCase = ffi::PRSocketOptionCase<ffi::PRBool>;
+        let mut buf = OptCase::new(ffi::PR_SockOpt_Nonblocking, ffi::PR_FALSE);
+        try!(result_prstatus(unsafe {
+            ffi::PR_GetSocketOption(self.as_raw_prfd(), buf.as_mut_ptr())
+        }));
+        Ok(bool_from_nspr(buf.value))
+    }
 }
 
 pub type FileType = ffi::PRDescType;
@@ -170,7 +182,7 @@ pub use nss_sys::nspr::{PR_DESC_FILE, PR_DESC_SOCKET_TCP, PR_DESC_SOCKET_UDP, PR
 pub struct FileWrapper<Inner>
     where Inner: FileMethods + Send + Sync {
     methods_ref: Arc<ffi::PRIOMethods>,
-    phantom: PhantomData<Fn(Inner)>,
+    phantom: PhantomData<fn(Inner)>,
 }
 
 struct WrappedFile<Inner>
@@ -211,7 +223,7 @@ impl<Inner> FileWrapper<Inner> where Inner: FileMethods + Send + Sync {
             getpeername: Some(wrapper_methods::getpeername::<Inner>),
             reserved_fn_6: None,
             reserved_fn_5: None,
-            getsocketoption: None,
+            getsocketoption: Some(wrapper_methods::getsocketoption::<Inner>),
             setsocketoption: None,
             sendfile: None,
             connectcontinue: None,
@@ -255,8 +267,10 @@ impl<Inner> FileWrapper<Inner> where Inner: FileMethods + Send + Sync {
 mod wrapper_methods {
     use super::{FileMethods, WrappedFile, WRAPPED_FILE_IDENT};
     use libc::c_void;
-    use nss_sys::nspr::{PRFileDesc, PRNetAddr, PRStatus, PRInt32, PRIntn, PRIntervalTime,
+    use nss_sys::nspr::{PRFileDesc, PRNetAddr, PRStatus, PRInt32, PRIntn, PRIntervalTime, PRBool,
+                        PRSocketOptionData, PRSocketOptionCase, PR_SockOpt_Nonblocking,
                         PR_SUCCESS, PR_FAILURE, PR_MSG_PEEK};
+    use nspr::bool_to_nspr;
     use nspr::error::PR_ADDRESS_NOT_SUPPORTED_ERROR;
     use nspr::net::{read_net_addr, write_net_addr};
     use nspr::time::duration_opt_from_nspr;
@@ -384,6 +398,23 @@ mod wrapper_methods {
         match this.inner.getpeername() {
             Ok(rust_addr) => { write_net_addr(addr, rust_addr); PR_SUCCESS },
             Err(err) => { err.set(); PR_FAILURE },
+        }
+    }
+
+    pub unsafe extern "C" fn getsocketoption<Inner>(fd: *mut PRFileDesc,
+                                                    data: *mut PRSocketOptionData) -> PRStatus
+        where Inner: FileMethods + Send + Sync
+    {
+        let this = get_secret::<Inner>(fd);
+        match (*data).get_enum() {
+            PR_SockOpt_Nonblocking => {
+                let data = data as *mut PRSocketOptionCase<PRBool>;
+                match this.inner.get_nonblocking() {
+                    Ok(b) => { (*data).value = bool_to_nspr(b); PR_SUCCESS },
+                    Err(err) => { err.set(); PR_FAILURE },
+                }
+            }
+            _ => unimplemented!()
         }
     }
 }

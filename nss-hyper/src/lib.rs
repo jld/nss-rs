@@ -26,6 +26,10 @@ impl<N: NetworkStream> NssClient<N> {
     }
 }
 
+macro_rules! nss_try {
+    ($e:expr) => { try!($e.map_err(Into::<io::Error>::into)) }
+}
+
 impl<N: NetworkStream + Clone> SslClient<N> for NssClient<N> {
     type Stream = FileToStream;
 
@@ -33,9 +37,10 @@ impl<N: NetworkStream + Clone> SslClient<N> for NssClient<N> {
         let peer_addr = try!(stream.peer_addr());
         let backend = StreamToFile::new(stream);
         let inner = self.factory.wrap(backend);
-        let outer = try!(TLSSocket::new(inner).map_err(Into::<io::Error>::into));
+        let mut outer = nss_try!(TLSSocket::new(inner));
+        nss_try!(outer.disable_security());
         // This "connect" just fixes NSS's state; handshake isn't send until first write.
-        try!(outer.connect(peer_addr, None).map_err(Into::<io::Error>::into));
+        nss_try!(outer.connect(peer_addr, None));
         Ok(FileToStream::new(outer.into_file()))
     }
 }
@@ -89,6 +94,10 @@ impl<N: NetworkStream> FileMethods for StreamToFile<N> {
         } else {
             Err(PR_NOT_CONNECTED_ERROR.into())
         }
+    }
+
+    fn get_nonblocking(&self) -> nss::Result<bool> {
+        Ok(false)
     }
 }
 

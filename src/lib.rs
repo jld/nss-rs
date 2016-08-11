@@ -4,6 +4,7 @@ extern crate libc;
 extern crate nss_sys;
 pub mod nspr;
 
+use libc::c_void;
 use nss_sys as ffi;
 use std::mem;
 use std::ptr;
@@ -11,6 +12,7 @@ use std::ops::Deref;
 
 pub use nspr::error::{Error, Result, failed, PR_WOULD_BLOCK_ERROR};
 pub use nspr::fd::{File,FileMethods,FileWrapper};
+use nspr::fd::RawFile;
 
 fn result_secstatus(status: ffi::SECStatus) -> Result<()> {
     // Must call this immediately after the NSS operation so that the
@@ -48,7 +50,24 @@ impl TLSSocket {
         }
     }
     pub fn into_file(self) -> File { self.0 }
+
+    pub fn unset_bad_cert_hook(&mut self) -> Result<()> {
+        // This doesn't take locks in the C code, so needs a unique ref.
+        result_secstatus(unsafe {
+            ffi::SSL_BadCertHook(self.as_raw_prfd(), None, ptr::null_mut())
+        })
+    }
+
+    pub fn disable_security(&mut self) -> Result<()> {
+        unsafe extern "C" fn this_is_fine(_arg: *mut c_void, _fd: RawFile) -> ffi::SECStatus {
+            ffi::SECSuccess
+        }
+        result_secstatus(unsafe {
+            ffi::SSL_BadCertHook(self.as_raw_prfd(), Some(this_is_fine), ptr::null_mut())
+        })
+    }
 }
+
 
 #[cfg(test)]
 mod tests {
