@@ -10,7 +10,6 @@ use std::io;
 use std::io::{Read, Write};
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 pub struct NssClient<N: NetworkStream = hyper::net::HttpStream> {
@@ -19,7 +18,7 @@ pub struct NssClient<N: NetworkStream = hyper::net::HttpStream> {
 
 impl<N: NetworkStream> NssClient<N> {
     pub fn new() -> Self {
-        nss::init().unwrap(); // FIXME unwrap
+        nss::init().unwrap(); // FIXME don't use unwrap
         NssClient {
             factory: FileWrapper::new(PR_DESC_SOCKET_TCP),
         }
@@ -46,21 +45,42 @@ impl<N: NetworkStream + Clone> SslClient<N> for NssClient<N> {
 }
 
 struct StreamToFile<N: NetworkStream> {
-    stream: Mutex<N>,
-    connected: AtomicBool,
+    inner: Mutex<StreamToFileInner<N>>,
+}
+
+struct StreamToFileInner<N: NetworkStream> {
+    stream: N,
+    timeouts: Timeouts,
+    connected: bool,
+}
+
+struct Timeouts {
+    read: Option<Duration>,
+    write: Option<Duration>,
+}
+impl Timeouts {
+    fn new() -> Self {
+        Timeouts {
+            read: None,
+            write: None,
+        }
+    }
 }
 
 impl<N: NetworkStream> StreamToFile<N> {
     fn new(stream: N) -> Self {
         StreamToFile {
-            stream: Mutex::new(stream),
-            connected: AtomicBool::new(false),
+            inner: Mutex::new(StreamToFileInner {
+                stream: stream,
+                timeouts: Timeouts::new(),
+                connected: false,
+            })
         }
     }
 }
 
 impl<N: NetworkStream> FileMethods for StreamToFile<N> {
-    // FIXME: do I need these?
+    // FIXME: do I even need `read` and `write`?
     fn read(&self, buf: &mut [u8]) -> nss::Result<usize> {
         self.recv(buf, false, None)
     }
@@ -69,7 +89,8 @@ impl<N: NetworkStream> FileMethods for StreamToFile<N> {
     }
 
     fn connect(&self, _addr: SocketAddr, _timeout: Option<Duration>) -> nss::Result<()> {
-        self.connected.store(true, Ordering::SeqCst);
+        let mut this = self.inner.lock().unwrap();
+        this.connected = true;
         Ok(())
     }
 
@@ -77,20 +98,27 @@ impl<N: NetworkStream> FileMethods for StreamToFile<N> {
         if peek {
             unimplemented!()
         }
-        let mut stream = self.stream.lock().unwrap();
-        try!(stream.set_read_timeout(timeout));
-        Ok(try!(stream.read(buf)))
+        let mut this = self.inner.lock().unwrap();
+        if this.timeouts.read != timeout {
+            try!(this.stream.set_read_timeout(timeout));
+            this.timeouts.read = timeout
+        }
+        Ok(try!(this.stream.read(buf)))
     }
 
     fn send(&self, buf: &[u8], timeout: Option<Duration>) -> nss::Result<usize> {
-        let mut stream = self.stream.lock().unwrap();
-        try!(stream.set_write_timeout(timeout));
-        Ok(try!(stream.write(buf)))
+        let mut this = self.inner.lock().unwrap();
+        if this.timeouts.write != timeout {
+            try!(this.stream.set_write_timeout(timeout));
+            this.timeouts.write = timeout
+        }
+        Ok(try!(this.stream.write(buf)))
     }
 
     fn getpeername(&self) -> nss::Result<SocketAddr> {
-        if self.connected.load(Ordering::SeqCst) {
-            self.stream.lock().unwrap().peer_addr().map_err(Into::into)
+        let mut this = self.inner.lock().unwrap();
+        if this.connected {
+            this.stream.peer_addr().map_err(Into::into)
         } else {
             Err(PR_NOT_CONNECTED_ERROR.into())
         }
@@ -104,14 +132,19 @@ impl<N: NetworkStream> FileMethods for StreamToFile<N> {
 
 #[derive(Clone)]
 pub struct FileToStream {
-    // The Arc is because network streams need to be Clone for unexplained reasons.
+    // This Arc is because network streams need to be Clone... because
+    // they're like file descriptors, I guess?  But what does that
+    // mean for stateful streams like TLS?  Is this actually the right
+    // Clone behavior?
     inner: Arc<FileToStreamInner>,
 }
 
 struct FileToStreamInner {
     file: File,
-    // The Mutex is because the timeouts are changed by &self methods, which makes no sense.
-    timeouts: Mutex<[Option<Duration>; 2]>,
+    // This Mutex is because the timeouts are changed by &self methods,
+    // which sort of makes sense as being like `setsockopt` on a file
+    // descriptor... but `peer_addr` takes &mut self so ???.
+    timeouts: Mutex<Timeouts>,
 }
 
 impl FileToStream {
@@ -119,7 +152,7 @@ impl FileToStream {
         FileToStream {
             inner: Arc::new(FileToStreamInner {
                 file: file,
-                timeouts: Mutex::new([None; 2])
+                timeouts: Mutex::new(Timeouts::new()),
             })
         }
     }
@@ -127,7 +160,7 @@ impl FileToStream {
 
 impl Read for FileToStream {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        let timeout = self.inner.timeouts.lock().unwrap()[0];
+        let timeout = self.inner.timeouts.lock().unwrap().read;
         // Is there some reason why try! insists on From instead of the weaker bound Into?
         self.inner.file.recv(buf, false, timeout).map_err(Into::into)
     }
@@ -135,7 +168,7 @@ impl Read for FileToStream {
 
 impl Write for FileToStream {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        let timeout = self.inner.timeouts.lock().unwrap()[1];
+        let timeout = self.inner.timeouts.lock().unwrap().write;
         self.inner.file.send(buf, timeout).map_err(Into::into)
     }
     fn flush(&mut self) -> io::Result<()> {
@@ -148,14 +181,14 @@ impl NetworkStream for FileToStream {
         self.inner.file.getpeername().map_err(Into::into)
     }
     fn set_read_timeout(&self, dur: Option<Duration>) -> io::Result<()> {
-        self.inner.timeouts.lock().unwrap()[0] = dur;
+        self.inner.timeouts.lock().unwrap().read = dur;
         Ok(())
     }
     fn set_write_timeout(&self, dur: Option<Duration>) -> io::Result<()> {
-        self.inner.timeouts.lock().unwrap()[1] = dur;
+        self.inner.timeouts.lock().unwrap().write = dur;
         Ok(())
     }
-    // TODO: map close() to PR_Shutdown?
+    // TODO: map NetworkStream::close() to PR_Shutdown?
 }
 
 #[cfg(test)]
