@@ -76,7 +76,7 @@ mod tests {
     use super::*;
     use nspr::error::{PR_NOT_CONNECTED_ERROR, PR_IS_CONNECTED_ERROR, PR_END_OF_FILE_ERROR};
     use std::net::{SocketAddr,SocketAddrV4,Ipv4Addr};
-    use std::sync::{Arc, Mutex};
+    use std::sync::Mutex;
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::time::Duration;
 
@@ -91,21 +91,21 @@ mod tests {
             SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), 443))
         }
 
-        struct FakeSocket {
+        struct FakeSocket<'a> {
             connected: AtomicBool,
-            written: Arc<Mutex<Vec<u8>>>,
+            written: Mutex<&'a mut Vec<u8>>,
         }
 
-        impl FakeSocket {
-            fn new() -> Self {
+        impl<'a> FakeSocket<'a> {
+            fn new(buf: &'a mut Vec<u8>) -> Self {
                 FakeSocket {
                     connected: AtomicBool::new(false),
-                    written: Arc::new(Mutex::new(Vec::new())),
+                    written: Mutex::new(buf),
                 }
             }
         }
 
-        impl FileMethods for FakeSocket {
+        impl<'a> FileMethods for FakeSocket<'a> {
             fn read(&self, _buf: &mut[u8]) -> Result<usize> {
                 Ok(0)
             }
@@ -139,13 +139,15 @@ mod tests {
         }
 
         init().unwrap();
-        let inner = FakeSocket::new();
-        let buf = inner.written.clone();
-        let sock_factory = FileWrapper::new(nspr::fd::PR_DESC_SOCKET_TCP);
-        let sock = sock_factory.wrap(inner);
-        let ssl = TLSSocket::new(sock).unwrap();
-        ssl.connect(fake_addr(), None).unwrap();
-        assert_eq!(ssl.write(&[]).unwrap_err().nspr_error, PR_END_OF_FILE_ERROR);
-        println!("DATA: {:?}", &buf.lock().unwrap()[..]);
+        let mut buf = Vec::new();
+        {
+            let inner = FakeSocket::new(&mut buf);
+            let sock_factory = FileWrapper::new(nspr::fd::PR_DESC_SOCKET_TCP);
+            let sock = sock_factory.wrap(inner);
+            let ssl = TLSSocket::new(sock).unwrap();
+            ssl.connect(fake_addr(), None).unwrap();
+            assert_eq!(ssl.write(&[]).unwrap_err().nspr_error, PR_END_OF_FILE_ERROR);
+        }
+        println!("DATA: {:?}", buf);
     }
 }
