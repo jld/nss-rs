@@ -5,7 +5,7 @@ use std::i32;
 use std::marker::PhantomData;
 use std::mem;
 use std::net::SocketAddr;
-use std::ops::Deref;
+use std::ops::{Deref, DerefMut};
 use std::ptr;
 use std::sync::Arc;
 use std::time::Duration;
@@ -20,6 +20,10 @@ pub struct File<Inner>(RawFile, PhantomData<Inner>);
 unsafe impl<Inner: Sync> Sync for File<Inner> { }
 unsafe impl<Inner: Send> Send for File<Inner> { }
 
+pub type NativeFile = File<ffi::PRFilePrivate>;
+pub type GenericFile = File<ErasedType>;
+pub struct ErasedType(());
+
 impl<Inner> Drop for File<Inner> {
     fn drop(&mut self) {
         let fd = mem::replace(&mut self.0, null());
@@ -27,6 +31,24 @@ impl<Inner> Drop for File<Inner> {
             // FIXME: this can deadlock in case of panic while holding NSPR locks
             // (e.g., NSS with panic in Rust-implemented lower layer)
             let _status = unsafe { ffi::PR_Close(fd) };
+        }
+    }
+}
+
+impl<Inner> Deref for File<Inner> {
+    type Target = Inner;
+    fn deref(&self) -> &Inner {
+        unsafe {
+            let ptr: *mut ffi::PRFilePrivate = (*self.as_raw_prfd()).secret;
+            mem::transmute(ptr)
+        }
+    }
+}
+impl<Inner> DerefMut for File<Inner> {
+    fn deref_mut(&mut self) -> &mut Inner {
+        unsafe {
+            let ptr: *mut ffi::PRFilePrivate = (*self.as_raw_prfd()).secret;
+            mem::transmute(ptr)
         }
     }
 }
@@ -61,15 +83,15 @@ impl<Inner> File<Inner> {
         }
     }
 
-    // TODO, maybe: some kind of type erasure?  But what about auto traits?
-    // Are Send+Sync+'static enough, or...?
-    // (LLVM probably can't devirtualize vtable calls on &FileMethods.)
+    // FIXME: is that bound strong enough to make this sound?
+    pub fn erase_type(self) -> GenericFile
+        where Inner: Send + Sync + 'static
+    {
+        unsafe { mem::transmute(self) }
+    }
 }
-
-pub struct PipeMarker(());
-pub type Pipe = File<PipeMarker>;
  
-pub fn new_pipe() -> Result<(Pipe, Pipe)> {
+pub fn new_pipe() -> Result<(NativeFile, NativeFile)> {
     super::init();
     let mut reader = null();
     let mut writer = null();
@@ -191,10 +213,19 @@ pub struct FileWrapper<Inner: FileMethods> {
     phantom: PhantomData<fn(Inner)>,
 }
 
-struct WrappedFile<Inner: FileMethods> {
+pub type WrappedFile<Inner> = File<WrappedFileImpl<Inner>>;
+
+pub struct WrappedFileImpl<Inner: FileMethods> {
     prfd: ffi::PRFileDesc,
     _methods_ref: Arc<ffi::PRIOMethods>,
     inner: Inner,
+}
+
+impl<Inner: FileMethods> Deref for WrappedFileImpl<Inner> {
+    type Target = Inner;
+    fn deref(&self) -> &Inner {
+        &self.inner
+    }
 }
 
 impl<Inner: FileMethods> FileWrapper<Inner> {
@@ -246,7 +277,7 @@ impl<Inner: FileMethods> FileWrapper<Inner> {
 
     pub fn wrap(&self, inner: Inner) -> File<Inner> {
         let methods_raw = self.methods_ref.deref() as *const _;
-        let mut boxed = Box::new(WrappedFile {
+        let mut boxed = Box::new(WrappedFileImpl {
             prfd: ffi::PRFileDesc {
                 methods: methods_raw,
                 secret: ptr::null_mut(),
@@ -267,7 +298,7 @@ impl<Inner: FileMethods> FileWrapper<Inner> {
 }
 
 mod wrapper_methods {
-    use super::{FileMethods, WrappedFile, WRAPPED_FILE_IDENT};
+    use super::{FileMethods, WrappedFileImpl, WRAPPED_FILE_IDENT};
     use libc::c_void;
     use nss_sys::nspr::{PRFileDesc, PRNetAddr, PRStatus, PRInt32, PRIntn, PRIntervalTime, PRBool,
                         PRSocketOptionData, PRSocketOptionCase, PR_SockOpt_Nonblocking,
@@ -279,11 +310,15 @@ mod wrapper_methods {
     use std::mem;
     use std::slice;
 
-    unsafe fn get_raw_secret<Inner: FileMethods>(fd: *mut PRFileDesc) -> *mut WrappedFile<Inner> {
+    unsafe fn get_raw_secret<Inner: FileMethods>(fd: *mut PRFileDesc)
+                                                 -> *mut WrappedFileImpl<Inner>
+    {
         assert_eq!((*fd).identity, *WRAPPED_FILE_IDENT);
-        (*fd).secret as *mut WrappedFile<Inner>
+        (*fd).secret as *mut WrappedFileImpl<Inner>
     }
-    unsafe fn get_secret<'a, Inner: FileMethods>(fd: *mut PRFileDesc) -> &'a WrappedFile<Inner> {
+    unsafe fn get_secret<'a, Inner: FileMethods>(fd: *mut PRFileDesc)
+                                                 -> &'a WrappedFileImpl<Inner>
+    {
         mem::transmute(get_raw_secret::<Inner>(fd))
     }
 
@@ -439,18 +474,15 @@ mod tests {
         pipe_test(wrapper.wrap(reader), wrapper.wrap(writer));
     }
 
-    // This is *probably* sound... for now... but there's no real use for it.
-    fn delaminate<Inner>(f: File<File<Inner>>) -> File<Inner> {
-        unsafe { mem::transmute(f) }
-    }
-
     #[test]
     fn very_wrapped_pipe_rdwr() {
         let wrapper = FileWrapper::new(PR_DESC_PIPE);
-        let (mut reader, mut writer) = new_pipe().unwrap();
+        let (reader, writer) = new_pipe().unwrap();
+        let mut reader = reader.erase_type();
+        let mut writer = writer.erase_type();
         for _ in 0..100 {
-            reader = delaminate(wrapper.wrap(reader));
-            writer = delaminate(wrapper.wrap(writer));
+            reader = wrapper.wrap(reader).erase_type();
+            writer = wrapper.wrap(writer).erase_type();
         }
         pipe_test(reader, writer);
     }

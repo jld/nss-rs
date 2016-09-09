@@ -123,7 +123,15 @@ pub struct PRFileDesc {
 // backends, but the `secret` can be anything pointer-sized as long as
 // all the methods agree on what it means.  In particular, NSS itself
 // does this in `ssl_PushIOLayer`.
-pub enum PRFilePrivate {}
+//
+// The struct isn't part of the stable ABI and its contents depend on
+// C `ifdef`s, so it's opaque here.  But it's not uninhabitable so
+// that `&PRFilePrivate` can safely exist.  And it's not a ZST because
+// that's not FFI-safe (not that that matters, but the lint doesn't
+// know that).
+#[repr(C)]
+pub struct PRFilePrivate(c_void);
+
 pub type PRDescIdentity = PRIntn;
 
 #[derive(Clone, Copy, Debug)]

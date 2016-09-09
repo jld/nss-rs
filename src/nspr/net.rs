@@ -4,7 +4,7 @@ use std::net::{SocketAddr,SocketAddrV4,SocketAddrV6,Ipv4Addr,Ipv6Addr};
 use std::mem;
 use std::u16;
 use nspr::error::Result;
-use nspr::fd::File;
+use nspr::fd::NativeFile;
 
 // FIXME is this going to be a "strict aliasing" problem?
 pub struct NetAddrStorage(ffi::PRNetAddrInet6);
@@ -63,20 +63,14 @@ pub unsafe fn write_net_addr(ptr: *mut ffi::PRNetAddr, addr: SocketAddr) {
     }
 }
 
-pub struct TcpSocketMarker(());
-pub type TcpSocket = File<TcpSocketMarker>;
-
-pub fn new_tcp_socket(af: c_int) -> Result<TcpSocket> {
+pub fn new_tcp_socket(af: c_int) -> Result<NativeFile> {
     super::init();
-    unsafe { File::from_raw_prfd_err(ffi::PR_OpenTCPSocket(af)) }
+    unsafe { NativeFile::from_raw_prfd_err(ffi::PR_OpenTCPSocket(af)) }
 }
 
-pub struct UdpSocketMarker(());
-pub type UdpSocket = File<UdpSocketMarker>;
-
-pub fn new_udp_socket(af: c_int) -> Result<UdpSocket> {
+pub fn new_udp_socket(af: c_int) -> Result<NativeFile> {
     super::init();
-    unsafe { File::from_raw_prfd_err(ffi::PR_OpenUDPSocket(af)) }
+    unsafe { NativeFile::from_raw_prfd_err(ffi::PR_OpenUDPSocket(af)) }
 }
 
 #[cfg(test)]
