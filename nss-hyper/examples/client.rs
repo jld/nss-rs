@@ -5,12 +5,31 @@ use nss_hyper::NssClient;
 use hyper::client::Client;
 use hyper::net::HttpsConnector;
 
-use std::io::{Read, Write, stdout};
+use std::env::args;
+use std::error::Error;
+use std::io::{Read, Write, stdout, stderr};
+use std::process::exit;
 
 fn main() {
     let client = Client::with_connector(HttpsConnector::new(NssClient::new()));
-    let mut resp = client.get("https://www.rfc-editor.org/").send().unwrap();
-    let mut body = Vec::new();
-    resp.read_to_end(&mut body).unwrap();
-    stdout().write_all(&body).unwrap();
+    let urls: Vec<_> = args().skip(1).collect();
+    if urls.len() == 0 || urls.iter().any(|u| u == "--help") {
+        let me = args().next().unwrap_or_else(|| "client".to_owned());
+        writeln!(stderr(), "Usage: {} <URLs>", me).unwrap();
+        writeln!(stderr(), "Sends a GET for each of the URLs and prints the responses.").unwrap();
+        return;
+    }
+    for url in urls {
+        match client.get(&url).send() {
+            Ok(mut resp) => {
+                let mut body = Vec::new();
+                resp.read_to_end(&mut body).unwrap();
+                stdout().write_all(&body).unwrap();
+            }
+            Err(err) => {
+                writeln!(stderr(), "Error retrieving {}: {}", url, err.description()).unwrap();
+                exit(1)
+            }
+        }
+    }
 }
