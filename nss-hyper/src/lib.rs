@@ -132,7 +132,7 @@ impl<N: NetworkStream> FileMethods for StreamToFile<N> {
 
 
 pub struct FileToStream<F>
-    where F: FileMethods + Send + Any
+    where F: FileMethods + Send + Sync + Any
 {
     // This Arc is because network streams need to be Clone... because
     // they're like file descriptors, I guess?  But what does that
@@ -144,7 +144,7 @@ pub struct FileToStream<F>
 // Can't derive this because derive insists the type param be Clone
 // even though that doesn't matter because Arc.  Sigh.
 impl<F> Clone for FileToStream<F>
-    where F: FileMethods + Send + Any
+    where F: FileMethods + Send + Sync + Any
 {
     fn clone(&self) -> Self {
         FileToStream { inner: self.inner.clone() }
@@ -152,7 +152,7 @@ impl<F> Clone for FileToStream<F>
 }
 
 struct FileToStreamInner<F>
-    where F: FileMethods + Send + Any
+    where F: FileMethods + Send + Sync + Any
 {
     file: F,
     // This Mutex is because the timeouts are changed by &self methods,
@@ -162,7 +162,7 @@ struct FileToStreamInner<F>
 }
 
 impl<F> FileToStream<F>
-    where F: FileMethods + Send + Any
+    where F: FileMethods + Send + Sync + Any
 {
     pub fn new(file: F) -> Self {
         FileToStream {
@@ -175,7 +175,7 @@ impl<F> FileToStream<F>
 }
 
 impl<F> Read for FileToStream<F>
-    where F: FileMethods + Send + Any
+    where F: FileMethods + Send + Sync + Any
 {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         let timeout = self.inner.timeouts.lock().unwrap().read;
@@ -185,7 +185,7 @@ impl<F> Read for FileToStream<F>
 }
 
 impl<F> Write for FileToStream<F>
-    where F: FileMethods + Send + Any
+    where F: FileMethods + Send + Sync + Any
 {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         let timeout = self.inner.timeouts.lock().unwrap().write;
@@ -197,7 +197,7 @@ impl<F> Write for FileToStream<F>
 }
 
 impl<F> NetworkStream for FileToStream<F>
-    where F: FileMethods + Send + Any
+    where F: FileMethods + Send + Sync + Any
 {
     fn peer_addr(&mut self) -> io::Result<SocketAddr> {
         self.inner.file.getpeername().map_err(Into::into)

@@ -81,7 +81,7 @@ pub fn new_pipe() -> Result<(Pipe, Pipe)> {
 
 pub fn null() -> RawFile { ptr::null_mut() }
 
-pub trait FileMethods: Sync {
+pub trait FileMethods {
     fn read(&self, _buf: &mut [u8]) -> Result<usize> {
         unimplemented!()
     }
@@ -109,7 +109,7 @@ pub trait FileMethods: Sync {
     }
 }
 
-impl<Inner: Sync> FileMethods for File<Inner> {
+impl<Inner> FileMethods for File<Inner> {
     fn read(&self, buf: &mut [u8]) -> Result<usize> {
         assert!(buf.len() <= i32::MAX as usize);
         result_len32(unsafe {
