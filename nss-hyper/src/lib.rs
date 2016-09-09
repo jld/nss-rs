@@ -2,10 +2,11 @@ extern crate hyper;
 extern crate nss;
 
 use hyper::net::{NetworkStream, SslClient};
-use nss::{File, FileMethods, FileWrapper, TLSSocket};
+use nss::{FileMethods, FileWrapper, TLSSocket};
 use nss::nspr::error::PR_NOT_CONNECTED_ERROR;
 use nss::nspr::fd::PR_DESC_SOCKET_TCP;
 
+use std::any::Any;
 use std::io;
 use std::io::{Read, Write};
 use std::net::SocketAddr;
@@ -30,7 +31,7 @@ macro_rules! nss_try {
 }
 
 impl<N: NetworkStream + Clone> SslClient<N> for NssClient<N> {
-    type Stream = FileToStream;
+    type Stream = FileToStream<TLSSocket<StreamToFile<N>>>;
 
     fn wrap_client(&self, mut stream: N, _host: &str) -> hyper::error::Result<Self::Stream> {
         let peer_addr = try!(stream.peer_addr());
@@ -40,11 +41,11 @@ impl<N: NetworkStream + Clone> SslClient<N> for NssClient<N> {
         nss_try!(outer.disable_security());
         // This "connect" just fixes NSS's state; handshake isn't send until first write.
         nss_try!(outer.connect(peer_addr, None));
-        Ok(FileToStream::new(outer.into_file()))
+        Ok(FileToStream::new(outer))
     }
 }
 
-struct StreamToFile<N: NetworkStream> {
+pub struct StreamToFile<N: NetworkStream> {
     inner: Mutex<StreamToFileInner<N>>,
 }
 
@@ -68,7 +69,7 @@ impl Timeouts {
 }
 
 impl<N: NetworkStream> StreamToFile<N> {
-    fn new(stream: N) -> Self {
+    pub fn new(stream: N) -> Self {
         StreamToFile {
             inner: Mutex::new(StreamToFileInner {
                 stream: stream,
@@ -130,25 +131,40 @@ impl<N: NetworkStream> FileMethods for StreamToFile<N> {
 }
 
 
-#[derive(Clone)]
-pub struct FileToStream {
+pub struct FileToStream<F>
+    where F: FileMethods + Send + Any
+{
     // This Arc is because network streams need to be Clone... because
     // they're like file descriptors, I guess?  But what does that
     // mean for stateful streams like TLS?  Is this actually the right
     // Clone behavior?
-    inner: Arc<FileToStreamInner>,
+    inner: Arc<FileToStreamInner<F>>,
 }
 
-struct FileToStreamInner {
-    file: File,
+// Can't derive this because derive insists the type param be Clone
+// even though that doesn't matter because Arc.  Sigh.
+impl<F> Clone for FileToStream<F>
+    where F: FileMethods + Send + Any
+{
+    fn clone(&self) -> Self {
+        FileToStream { inner: self.inner.clone() }
+    }
+}
+
+struct FileToStreamInner<F>
+    where F: FileMethods + Send + Any
+{
+    file: F,
     // This Mutex is because the timeouts are changed by &self methods,
     // which sort of makes sense as being like `setsockopt` on a file
     // descriptor... but `peer_addr` takes &mut self so ???.
     timeouts: Mutex<Timeouts>,
 }
 
-impl FileToStream {
-    pub fn new(file: File) -> Self {
+impl<F> FileToStream<F>
+    where F: FileMethods + Send + Any
+{
+    pub fn new(file: F) -> Self {
         FileToStream {
             inner: Arc::new(FileToStreamInner {
                 file: file,
@@ -158,7 +174,9 @@ impl FileToStream {
     }
 }
 
-impl Read for FileToStream {
+impl<F> Read for FileToStream<F>
+    where F: FileMethods + Send + Any
+{
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         let timeout = self.inner.timeouts.lock().unwrap().read;
         // Is there some reason why try! insists on From instead of the weaker bound Into?
@@ -166,7 +184,9 @@ impl Read for FileToStream {
     }
 }
 
-impl Write for FileToStream {
+impl<F> Write for FileToStream<F>
+    where F: FileMethods + Send + Any
+{
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         let timeout = self.inner.timeouts.lock().unwrap().write;
         self.inner.file.send(buf, timeout).map_err(Into::into)
@@ -176,7 +196,9 @@ impl Write for FileToStream {
     }
 }
 
-impl NetworkStream for FileToStream {
+impl<F> NetworkStream for FileToStream<F>
+    where F: FileMethods + Send + Any
+{
     fn peer_addr(&mut self) -> io::Result<SocketAddr> {
         self.inner.file.getpeername().map_err(Into::into)
     }

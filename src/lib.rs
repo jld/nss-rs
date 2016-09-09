@@ -6,9 +6,9 @@ pub mod nspr;
 
 use libc::c_void;
 use nss_sys as ffi;
+use std::marker::PhantomData;
 use std::mem;
 use std::ptr;
-use std::ops::Deref;
 
 pub use nspr::error::{Error, Result, failed, PR_WOULD_BLOCK_ERROR};
 pub use nspr::fd::{File,FileMethods,FileWrapper};
@@ -31,25 +31,27 @@ pub fn init() -> Result<()> {
     result_secstatus(unsafe { ffi::NSS_NoDB_Init(ptr::null()) })
 }
 
-pub struct TLSSocket(File);
-impl Deref for TLSSocket {
-    type Target = File;
-    fn deref(&self) -> &File { &self.0 }
-}
-impl TLSSocket {
-    pub fn new(inner: File) -> Result<Self> {
-        Self::new_with_model(inner, None)
+pub struct TLSMarker<Inner>(PhantomData<Inner>);
+// As long as the NSPR bindings are in the same crate, doing this as a
+// type equation still allows adding impls/inherents; otherwise it
+// would need to be a newtype with a bunch of conversion traits.
+pub type TLSSocket<Inner> = File<TLSMarker<Inner>>;
+
+impl<Inner> TLSSocket<Inner> {
+    pub fn new(inner: File<Inner>) -> Result<Self> {
+        Self::new_with_model(inner, None::<Self>)
     }
-    pub fn new_with_model(inner: File, model: Option<Self>) -> Result<Self> {
+    pub fn new_with_model<Other>(inner: File<Inner>,
+                                 model: Option<TLSSocket<Other>>) -> Result<Self>
+    {
         let raw_model = model.map_or(nspr::fd::null(), |fd| fd.as_raw_prfd());
         unsafe {
             let raw = ffi::SSL_ImportFD(raw_model, inner.as_raw_prfd());
             let sock = try!(File::from_raw_prfd_err(raw));
             mem::forget(inner);
-            Ok(TLSSocket(sock))
+            Ok(sock)
         }
     }
-    pub fn into_file(self) -> File { self.0 }
 
     pub fn unset_bad_cert_hook(&mut self) -> Result<()> {
         // This doesn't take locks in the C code, so needs a unique ref.

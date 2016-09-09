@@ -63,12 +63,18 @@ pub unsafe fn write_net_addr(ptr: *mut ffi::PRNetAddr, addr: SocketAddr) {
     }
 }
 
-pub fn new_tcp_socket(af: c_int) -> Result<File> {
+pub struct TcpSocketMarker(());
+pub type TcpSocket = File<TcpSocketMarker>;
+
+pub fn new_tcp_socket(af: c_int) -> Result<TcpSocket> {
     super::init();
     unsafe { File::from_raw_prfd_err(ffi::PR_OpenTCPSocket(af)) }
 }
 
-pub fn new_udp_socket(af: c_int) -> Result<File> {
+pub struct UdpSocketMarker(());
+pub type UdpSocket = File<UdpSocketMarker>;
+
+pub fn new_udp_socket(af: c_int) -> Result<UdpSocket> {
     super::init();
     unsafe { File::from_raw_prfd_err(ffi::PR_OpenUDPSocket(af)) }
 }
