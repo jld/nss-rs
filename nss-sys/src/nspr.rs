@@ -353,22 +353,25 @@ pub struct PRIOVec {
 }
 
 // This is really a PRSockOption "discriminant" followed by a union.
-// Rust can't directly represent this yet, so pointer arithmetic is needed.
+// Rust can't directly represent unions yet, so this needs an awkward
+// workaround.
 pub type PRSocketOptionData = PRSocketOptionCase<PRSocketOptionVoid>;
 pub enum PRSocketOptionVoid { }
 
-// This should be the same size as the enum + the alignment padding
-// before the union; use this with ptr::offset to get the option value
-// address.
+// This represents a PRSocketOptionData for a specific actual type of
+// the value union.
 #[derive(Clone, Copy, Debug)]
 #[repr(C)]
 pub struct PRSocketOptionCase<T> {
+    // This should be the same size as the enum + the alignment padding
+    // before the union.
     padded_enum: PRSize,
     pub value: T
 }
 impl<T> PRSocketOptionCase<T> {
     pub fn new(which: PRSockOption, value: T) -> Self {
         let mut padded_enum: PRSize = 0;
+        // Write the discriminant to the start of the space occupied by padded_enum.
         unsafe { *(&mut padded_enum as *mut PRSize as *mut PRSockOption) = which; }
         PRSocketOptionCase {
             padded_enum: padded_enum,
@@ -376,6 +379,7 @@ impl<T> PRSocketOptionCase<T> {
         }
     }
     pub fn get_enum(&self) -> PRSockOption {
+        // Read the discriminant from the start of the space occupied by padded_enum.
         unsafe { *(&self.padded_enum as *const PRSize as *const PRSockOption) }
     }
     pub fn as_ptr(&self) -> *const PRSocketOptionData {
