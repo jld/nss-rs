@@ -5,7 +5,7 @@ use std::i32;
 use std::marker::PhantomData;
 use std::mem;
 use std::net::SocketAddr;
-use std::ops::{Deref, DerefMut};
+use std::ops::Deref;
 use std::ptr;
 use std::sync::Arc;
 use std::time::Duration;
@@ -38,14 +38,6 @@ impl<Inner> Drop for File<Inner> {
 impl<Inner> Deref for File<Inner> {
     type Target = Inner;
     fn deref(&self) -> &Inner {
-        unsafe {
-            let ptr: *mut ffi::PRFilePrivate = (*self.as_raw_prfd()).secret;
-            mem::transmute(ptr)
-        }
-    }
-}
-impl<Inner> DerefMut for File<Inner> {
-    fn deref_mut(&mut self) -> &mut Inner {
         unsafe {
             let ptr: *mut ffi::PRFilePrivate = (*self.as_raw_prfd()).secret;
             mem::transmute(ptr)
