@@ -557,6 +557,9 @@ pub use self::PRThreadPriority::*;
 
 pub const PR_MSG_PEEK: PRIntn = 0x2;
 
+// This has a public definition in C, but we don't currently need it.
+pub enum PLArenaPool { }
+
 extern "C" {
     // N.B. None of these arguments are used.
     pub fn PR_Init(_type: PRThreadType,

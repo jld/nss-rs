@@ -1,11 +1,15 @@
 #![allow(non_upper_case_globals)]
+#![allow(non_camel_case_types)] // for CK_STUFF; could lower if cryptoki becomes a submodule
 #![allow(non_snake_case)]
 
 extern crate libc;
 pub mod nspr;
+pub mod cert;
 
-use libc::{c_char,c_void};
+use libc::{c_char, c_uchar, c_uint, c_ulong, c_void};
 use nspr::PRFileDesc;
+
+pub use cert::CERTCertificate;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[repr(C)]
@@ -15,6 +19,53 @@ pub enum SECStatus {
     SECSuccess = 0,
 }
 pub use self::SECStatus::*;
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[repr(C)]
+pub enum SECItemType {
+    siBuffer = 0,
+    siClearDataBuffer = 1,
+    siCipherDataBuffer = 2,
+    siDERCertBuffer = 3,
+    siEncodedCertBuffer = 4,
+    siDERNameBuffer = 5,
+    siEncodedNameBuffer = 6,
+    siAsciiNameString = 7,
+    siAsciiString = 8,
+    siDEROID = 9,
+    siUnsignedInteger = 10,
+    siUTCTime = 11,
+    siGeneralizedTime = 12,
+    siVisibleString = 13,
+    siUTF8String = 14,
+    siBMPString = 15,
+}
+
+pub type SECItem = SECItemStr;
+pub type SECAlgorithmID = SECAlgorithmIDStr;
+pub type PK11SlotInfo = PK11SlotInfoStr;
+
+pub type CK_OBJECT_HANDLE = CK_ULONG;
+pub type CK_ULONG = c_ulong;
+
+pub enum NSSTrustDomainStr { }
+pub enum NSSCertificateStr { }
+pub enum PK11SlotInfoStr { }
+
+#[derive(Debug)]
+#[repr(C)]
+pub struct SECItemStr {
+    pub type_: SECItemType,
+    pub data: *mut c_uchar,
+    pub len: c_uint,
+}
+
+#[derive(Debug)]
+#[repr(C)]
+pub struct SECAlgorithmIDStr {
+    pub algorithm: SECItem,
+    pub parameters: SECItem,
+}
 
 pub type SSLBadCertHandler =
     Option<unsafe extern "C" fn (arg: *mut c_void, fd: *mut PRFileDesc) -> SECStatus>;
