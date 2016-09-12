@@ -3,16 +3,20 @@ extern crate lazy_static;
 extern crate libc;
 extern crate nss_sys;
 pub mod nspr;
+pub mod cert;
 
 use libc::c_void;
 use nss_sys as ffi;
 use std::marker::PhantomData;
 use std::mem;
 use std::ptr;
+use std::slice;
 
 pub use nspr::error::{Error, Result, failed, PR_WOULD_BLOCK_ERROR};
-pub use nspr::fd::{File,FileMethods,FileWrapper};
-use nspr::fd::RawFile;
+pub use nspr::fd::{File, FileMethods, FileWrapper};
+pub use cert::Certificate;
+use nspr::fd::{RawFile, BorrowedFile, WrappedFileImpl};
+use nspr::bool_from_nspr;
 
 fn result_secstatus(status: ffi::SECStatus) -> Result<()> {
     // Must call this immediately after the NSS operation so that the
@@ -31,6 +35,12 @@ pub fn init() -> Result<()> {
     result_secstatus(unsafe { ffi::NSS_NoDB_Init(ptr::null()) })
 }
 
+// Caller must ensure this isn't one of the SECItems where the length
+// is actually bits instead of bytes.
+pub unsafe fn sec_item_as_slice(item: &ffi::SECItem) -> &[u8] {
+    slice::from_raw_parts(item.data, item.len as usize)
+}
+
 pub struct TLSMarker<Inner>(PhantomData<Inner>);
 // As long as the NSPR bindings are in the same crate, doing this as a
 // type equation still allows adding impls/inherents; otherwise it
@@ -39,10 +49,9 @@ pub type TLSSocket<Inner> = File<TLSMarker<Inner>>;
 
 impl<Inner> TLSSocket<Inner> {
     pub fn new(inner: File<Inner>) -> Result<Self> {
-        Self::new_with_model(inner, None::<Self>)
+        Self::new_with_model(inner, None)
     }
-    pub fn new_with_model<Other>(inner: File<Inner>,
-                                 model: Option<TLSSocket<Other>>) -> Result<Self>
+    pub fn new_with_model(inner: File<Inner>, model: Option<Self>) -> Result<Self>
     {
         let raw_model = model.map_or(nspr::fd::null(), |fd| fd.as_raw_prfd());
         unsafe {
@@ -68,8 +77,61 @@ impl<Inner> TLSSocket<Inner> {
             ffi::SSL_BadCertHook(self.as_raw_prfd(), Some(this_is_fine), ptr::null_mut())
         })
     }
+
+    pub fn peer_cert(&self) -> Option<Certificate> {
+        unsafe { 
+            Certificate::from_raw_ptr_opt(ffi::SSL_PeerCertificate(self.as_raw_prfd()))
+        }
+    }
+
+    pub fn cleartext(&self) -> BorrowedFile<Inner> {
+        unsafe {
+            BorrowedFile::from_raw_prfd((*self.as_raw_prfd()).lower)
+        }
+    }
+
+    pub fn use_auth_certificate_hook(&mut self) -> Result<()>
+        where Inner: AuthCertificateHook<Inner>
+    {
+        unsafe {
+            result_secstatus(ffi::SSL_AuthCertificateHook(self.as_raw_prfd(),
+                                                          Some(raw_auth_certificate_hook::<Inner>),
+                                                          ptr::null_mut()))
+        }
+    }    
 }
 
+pub trait AuthCertificateHook<Inner> {
+    fn auth_certificate(&self, sock: &TLSSocket<Inner>, check_sig: bool, is_server: bool)
+        -> Result<()>;
+}
+
+impl<Inner, MoreInner> AuthCertificateHook<Inner> for WrappedFileImpl<MoreInner>
+    where MoreInner: FileMethods + AuthCertificateHook<Inner>
+{
+    fn auth_certificate(&self, socket: &TLSSocket<Inner>, check_sig: bool, is_server: bool)
+        -> Result<()>
+    {
+        MoreInner::auth_certificate(self, socket, check_sig, is_server)
+    }
+}
+
+unsafe extern "C" fn raw_auth_certificate_hook<Inner>(_arg: *mut c_void,
+                                                      fd: *mut ffi::nspr::PRFileDesc,
+                                                      check_sig: ffi::nspr::PRBool,
+                                                      is_server: ffi::nspr::PRBool)
+                                                      -> ffi::SECStatus
+    where Inner: AuthCertificateHook<Inner>
+{
+    // TODO: check identity?
+    let sock: BorrowedFile<TLSMarker<Inner>> = BorrowedFile::from_raw_prfd_ref(&fd);
+    match sock.cleartext().get_ref().auth_certificate(&sock,
+                                                      bool_from_nspr(check_sig),
+                                                      bool_from_nspr(is_server)) {
+        Ok(()) => ffi::SECSuccess,
+        Err(err) => { err.set(); ffi::SECFailure }
+    }
+}
 
 #[cfg(test)]
 mod tests {

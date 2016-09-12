@@ -7,9 +7,9 @@ pub mod nspr;
 pub mod cert;
 
 use libc::{c_char, c_uchar, c_uint, c_ulong, c_void};
-use nspr::PRFileDesc;
+use nspr::{PRFileDesc, PRBool};
 
-pub use cert::CERTCertificate;
+pub use cert::{CERTCertificate, CERT_DestroyCertificate};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[repr(C)]
@@ -70,11 +70,19 @@ pub struct SECAlgorithmIDStr {
 pub type SSLBadCertHandler =
     Option<unsafe extern "C" fn (arg: *mut c_void, fd: *mut PRFileDesc) -> SECStatus>;
 
+pub type SSLAuthCertificate =
+    Option<unsafe extern "C" fn(arg: *mut c_void, fd: *mut PRFileDesc,
+                                checkSig: PRBool, isServer: PRBool) -> SECStatus>;
+
 extern "C" {
     pub fn NSS_NoDB_Init(_configdir: *const c_char) -> SECStatus;
     pub fn NSS_SetDomesticPolicy() -> SECStatus;
     pub fn SSL_ImportFD(model: *mut PRFileDesc, fd: *mut PRFileDesc) -> *mut PRFileDesc;
-    pub fn SSL_BadCertHook(fd: *mut PRFileDesc, f: SSLBadCertHandler, arg: *mut c_void) -> SECStatus;
+    pub fn SSL_PeerCertificate(fd: *mut PRFileDesc) -> *mut CERTCertificate;
+    pub fn SSL_AuthCertificateHook(fd: *mut PRFileDesc, f: SSLAuthCertificate, arg: *mut c_void)
+                                   -> SECStatus;
+    pub fn SSL_BadCertHook(fd: *mut PRFileDesc, f: SSLBadCertHandler, arg: *mut c_void)
+                           -> SECStatus;
 }
 
 

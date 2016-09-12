@@ -42,7 +42,7 @@ fn result_prstatus(rv: ffi::PRStatus) -> Result<()> {
     }
 }
 
-fn bool_from_nspr(b: ffi::PRBool) -> bool {
+pub fn bool_from_nspr(b: ffi::PRBool) -> bool {
     match b {
         ffi::PR_FALSE => false,
         ffi::PR_TRUE => true,
@@ -50,7 +50,7 @@ fn bool_from_nspr(b: ffi::PRBool) -> bool {
     }
 }
 
-fn bool_to_nspr(b: bool) -> ffi::PRBool {
+pub fn bool_to_nspr(b: bool) -> ffi::PRBool {
     if b {
         ffi::PR_TRUE
     } else {

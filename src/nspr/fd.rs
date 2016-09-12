@@ -89,26 +89,18 @@ impl<Inner> File<Inner> {
 // Like `File`, but with no `drop`; for use in callbacks from C where
 // the caller owns the file and the callee must not close it.  In
 // general this should be used only via `&File` borrows.
-pub struct BorrowedFile<Inner>(RawFile, PhantomData<Inner>);
+pub struct BorrowedFile<'a, Inner: 'a>(RawFile, PhantomData<&'a Inner>);
 // This could get the same `unsafe impl`s as owned `File`, but
 // probably doesn't need them.
 
-impl<Inner> Deref for BorrowedFile<Inner> {
+impl<'a, Inner: 'a> Deref for BorrowedFile<'a, Inner> {
     type Target = File<Inner>;
     fn deref(&self) -> &Self::Target {
         unsafe { mem::transmute(self) }
     }
 }
-// This is dangerous -- use only in callbacks like `PR_Close` where
-// unique ownership is a precondition but close on panic would be
-// wrong.
-impl<Inner> DerefMut for BorrowedFile<Inner> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        unsafe { mem::transmute(self) }
-    }
-}
 
-impl<Inner> BorrowedFile<Inner> {
+impl<'a, Inner: 'a> BorrowedFile<'a, Inner> {
     pub unsafe fn from_raw_prfd(fd: RawFile) -> Self {
         assert!(fd != null());
         BorrowedFile(fd, PhantomData)
@@ -116,6 +108,12 @@ impl<Inner> BorrowedFile<Inner> {
     pub unsafe fn from_raw_prfd_checked(fd: RawFile, ident: ffi::PRDescIdentity) -> Self {
         assert_eq!((*fd).identity, ident);
         Self::from_raw_prfd(fd)
+    }
+    pub unsafe fn from_raw_prfd_ref(fd: &'a RawFile) -> Self {
+        Self::from_raw_prfd(*fd)
+    }
+    pub unsafe fn from_raw_prfd_ref_checked(fd: &'a RawFile, ident: ffi::PRDescIdentity) -> Self {
+        Self::from_raw_prfd_checked(*fd, ident)
     }
 }
 
@@ -331,7 +329,7 @@ impl<Inner: FileMethods> FileWrapper<Inner> {
 }
 
 mod wrapper_methods {
-    use super::{FileMethods, BorrowedFile, WrappedFileImpl, WRAPPED_FILE_IDENT};
+    use super::{FileMethods, File, BorrowedFile, WrappedFileImpl, WRAPPED_FILE_IDENT};
     use libc::c_void;
     use nss_sys::nspr::{PRFileDesc, PRNetAddr, PRStatus, PRInt32, PRIntn, PRIntervalTime, PRBool,
                         PRSocketOptionData, PRSocketOptionCase, PR_SockOpt_Nonblocking,
@@ -343,22 +341,23 @@ mod wrapper_methods {
     use std::mem;
     use std::slice;
 
-    unsafe fn xlate_fd<Inner: FileMethods>(fd: *mut PRFileDesc)
+    unsafe fn xlate_fd<Inner: FileMethods>(fd: &*mut PRFileDesc)
                                            -> BorrowedFile<WrappedFileImpl<Inner>>
     {
-        BorrowedFile::from_raw_prfd_checked(fd, *WRAPPED_FILE_IDENT)
+        BorrowedFile::from_raw_prfd_ref_checked(fd, *WRAPPED_FILE_IDENT)
     }
 
     pub unsafe extern "C" fn close<Inner: FileMethods>(fd: *mut PRFileDesc) -> PRStatus {
         let raw_box = {
-            let mut this = xlate_fd::<Inner>(fd);
+            let mut this = xlate_fd::<Inner>(&fd);
             // Ensure that, whatever in-place linked list node swapping
             // happened during this object's lifetime due to I/O layering,
             // its contents are now back where they started and we can
             // safely free the box.  (This condition will generally *not*
             // be true in other methods.)
-            assert_eq!(&mut this.get_mut().prfd as *mut PRFileDesc, fd);
-            this.get_mut() as *mut WrappedFileImpl<Inner>
+            let mut this_ref: &mut File<WrappedFileImpl<Inner>> = mem::transmute(&mut this);
+            assert_eq!(&mut this_ref.get_mut().prfd as *mut PRFileDesc, fd);
+            this_ref.get_mut() as *mut WrappedFileImpl<Inner>
         };
         mem::drop(Box::from_raw(raw_box));
         PR_SUCCESS
@@ -367,7 +366,7 @@ mod wrapper_methods {
     pub unsafe extern "C" fn read<Inner: FileMethods>(fd: *mut PRFileDesc,
                                                       buf: *mut c_void,
                                                       amount: PRInt32) -> PRInt32 {
-        let this = xlate_fd::<Inner>(fd);
+        let this = xlate_fd::<Inner>(&fd);
         assert!(amount >= 0);
         match this.get_ref().read(slice::from_raw_parts_mut(buf as *mut u8, amount as usize)) {
             Ok(len) => { assert!(len <= amount as usize); len as PRInt32 },
@@ -378,7 +377,7 @@ mod wrapper_methods {
     pub unsafe extern "C" fn write<Inner: FileMethods>(fd: *mut PRFileDesc,
                                                        buf: *const c_void,
                                                        amount: PRInt32) -> PRInt32 {
-        let this = xlate_fd::<Inner>(fd);
+        let this = xlate_fd::<Inner>(&fd);
         assert!(amount >= 0);
         match this.get_ref().write(slice::from_raw_parts(buf as *mut u8, amount as usize)) {
             Ok(len) => { assert!(len <= amount as usize); len as PRInt32 },
@@ -389,7 +388,7 @@ mod wrapper_methods {
     pub unsafe extern "C" fn connect<Inner: FileMethods>(fd: *mut PRFileDesc,
                                                          addr: *const PRNetAddr,
                                                          timeout: PRIntervalTime) -> PRStatus {
-        let this = xlate_fd::<Inner>(fd);
+        let this = xlate_fd::<Inner>(&fd);
         let status = if let Some(rust_addr) = read_net_addr(addr) {
             this.get_ref().connect(rust_addr, duration_opt_from_nspr(timeout))
         } else {
@@ -406,7 +405,7 @@ mod wrapper_methods {
                                                       amount: PRInt32,
                                                       flags: PRIntn,
                                                       timeout: PRIntervalTime) -> PRInt32 {
-        let this = xlate_fd::<Inner>(fd);
+        let this = xlate_fd::<Inner>(&fd);
         assert!(amount >= 0);
         let peek = flags & PR_MSG_PEEK != 0;
         match this.get_ref().recv(slice::from_raw_parts_mut(buf as *mut u8, amount as usize),
@@ -421,7 +420,7 @@ mod wrapper_methods {
                                                       amount: PRInt32,
                                                       _flags: PRIntn,
                                                       timeout: PRIntervalTime) -> PRInt32 {
-        let this = xlate_fd::<Inner>(fd);
+        let this = xlate_fd::<Inner>(&fd);
         assert!(amount >= 0);
         match this.get_ref().send(slice::from_raw_parts(buf as *mut u8, amount as usize),
                               duration_opt_from_nspr(timeout)) {
@@ -432,7 +431,7 @@ mod wrapper_methods {
 
     pub unsafe extern "C" fn getsockname<Inner: FileMethods>(fd: *mut PRFileDesc,
                                                              addr: *mut PRNetAddr) -> PRStatus {
-        let this = xlate_fd::<Inner>(fd);
+        let this = xlate_fd::<Inner>(&fd);
         match this.get_ref().getsockname() {
             Ok(rust_addr) => { write_net_addr(addr, rust_addr); PR_SUCCESS },
             Err(err) => { err.set(); PR_FAILURE },
@@ -441,7 +440,7 @@ mod wrapper_methods {
 
     pub unsafe extern "C" fn getpeername<Inner: FileMethods>(fd: *mut PRFileDesc,
                                                              addr: *mut PRNetAddr) -> PRStatus {
-        let this = xlate_fd::<Inner>(fd);
+        let this = xlate_fd::<Inner>(&fd);
         match this.get_ref().getpeername() {
             Ok(rust_addr) => { write_net_addr(addr, rust_addr); PR_SUCCESS },
             Err(err) => { err.set(); PR_FAILURE },
@@ -451,7 +450,7 @@ mod wrapper_methods {
     pub unsafe extern "C" fn getsocketoption<Inner: FileMethods>(fd: *mut PRFileDesc,
                                                                  data: *mut PRSocketOptionData)
                                                                  -> PRStatus {
-        let this = xlate_fd::<Inner>(fd);
+        let this = xlate_fd::<Inner>(&fd);
         match (*data).get_enum() {
             PR_SockOpt_Nonblocking => {
                 let data = data as *mut PRSocketOptionCase<PRBool>;

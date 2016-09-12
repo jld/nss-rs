@@ -177,3 +177,7 @@ pub struct CERTAuthKeyIDStr {
 
 // FIXME -- has union
 pub enum CERTGeneralNameStr { }
+
+extern "C" {
+    pub fn CERT_DestroyCertificate(cert: *mut CERTCertificate);
+}
