@@ -9,7 +9,6 @@ use libc::c_void;
 use nss_sys as ffi;
 use std::borrow::Borrow;
 use std::ffi::CStr;
-use std::marker::PhantomData;
 use std::mem;
 use std::ops::{Deref,DerefMut};
 use std::ptr;
@@ -44,39 +43,34 @@ pub unsafe fn sec_item_as_slice(item: &ffi::SECItem) -> &[u8] {
     slice::from_raw_parts(item.data, item.len as usize)
 }
 
-pub struct TLSMarker<Inner>(PhantomData<Inner>);
-// As long as the NSPR bindings are in the same crate, doing this as a
-// type equation still allows adding impls/inherents; otherwise it
-// would need to be a newtype with a bunch of conversion traits.
-pub struct TLSSocket<Inner, Callbacks> {
-    file: File<TLSMarker<Inner>>,
-    callbacks: Callbacks
+pub struct TLSSocket<Callbacks> {
+    file: File,
+    callbacks: Callbacks,
 }
 
-impl<Inner, Callbacks> Deref for TLSSocket<Inner, Callbacks> {
-    type Target = File<TLSMarker<Inner>>;
+impl<Callbacks> Deref for TLSSocket<Callbacks> {
+    type Target = File;
     fn deref(&self) -> &Self::Target {
         &self.file
     }
 }
-impl<Inner, Callbacks> DerefMut for TLSSocket<Inner, Callbacks> {
+impl<Callbacks> DerefMut for TLSSocket<Callbacks> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.file
     }
 }
 
-impl<Inner, Callbacks> Borrow<File<TLSMarker<Inner>>> for TLSSocket<Inner, Callbacks> {
-    fn borrow(&self) -> &File<TLSMarker<Inner>> {
+impl<Callbacks> Borrow<File> for TLSSocket<Callbacks> {
+    fn borrow(&self) -> &File {
         &self.file
     }
 }
 
-impl<Inner, Callbacks> TLSSocket<Inner, Callbacks> {
-    pub fn new(inner: File<Inner>, callbacks: Callbacks) -> Result<Self> {
+impl<Callbacks> TLSSocket<Callbacks> {
+    pub fn new(inner: File, callbacks: Callbacks) -> Result<Self> {
         Self::new_with_model(inner, callbacks, None)
     }
-    pub fn new_with_model(inner: File<Inner>, callbacks: Callbacks, model: Option<Self>)
-                          -> Result<Self>
+    pub fn new_with_model(inner: File, callbacks: Callbacks, model: Option<Self>) -> Result<Self>
     {
         if let Some(_) = model {
             // This will copy the callbacks; need to unset or fix them.
@@ -124,18 +118,18 @@ impl<Inner, Callbacks> TLSSocket<Inner, Callbacks> {
         }
     }
 
-    pub fn cleartext(&self) -> BorrowedFile<Inner> {
+    pub fn cleartext(&self) -> BorrowedFile {
         unsafe {
             BorrowedFile::from_raw_prfd((*self.as_raw_prfd()).lower)
         }
     }
 
     pub fn use_auth_certificate_hook(&mut self) -> Result<()>
-        where Callbacks: AuthCertificateHook<Inner>
+        where Callbacks: AuthCertificateHook
     {
         result_secstatus(unsafe {
             ffi::SSL_AuthCertificateHook(self.as_raw_prfd(),
-                                         Some(raw_auth_certificate_hook::<Inner, Callbacks>),
+                                         Some(raw_auth_certificate_hook::<Callbacks>),
                                          mem::transmute(self as &Self))
         })
     }
@@ -153,20 +147,20 @@ impl<Inner, Callbacks> TLSSocket<Inner, Callbacks> {
     }
 }
 
-pub trait AuthCertificateHook<Inner>: Sized {
-    fn auth_certificate(&self, sock: &TLSSocket<Inner, Self>, check_sig: bool, is_server: bool)
-        -> Result<()>;
+pub trait AuthCertificateHook: Sized {
+    fn auth_certificate(&self, sock: &TLSSocket<Self>, check_sig: bool, is_server: bool)
+                        -> Result<()>;
 }
 
-unsafe extern "C" fn raw_auth_certificate_hook<Inner, Callbacks>(arg: *mut c_void,
-                                                                 fd: *mut ffi::nspr::PRFileDesc,
-                                                                 check_sig: ffi::nspr::PRBool,
-                                                                 is_server: ffi::nspr::PRBool)
-                                                                 -> ffi::SECStatus
-    where Callbacks: AuthCertificateHook<Inner>
+unsafe extern "C" fn raw_auth_certificate_hook<Callbacks>(arg: *mut c_void,
+                                                          fd: *mut ffi::nspr::PRFileDesc,
+                                                          check_sig: ffi::nspr::PRBool,
+                                                          is_server: ffi::nspr::PRBool)
+                                                          -> ffi::SECStatus
+    where Callbacks: AuthCertificateHook
 {
     // TODO: check identity?
-    let sock: &TLSSocket<Inner, Callbacks> = mem::transmute(arg);
+    let sock: &TLSSocket<Callbacks> = mem::transmute(arg);
     assert_eq!(sock.as_raw_prfd(), fd);
     match sock.callbacks().auth_certificate(sock,
                                             bool_from_nspr(check_sig),
