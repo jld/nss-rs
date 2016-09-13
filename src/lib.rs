@@ -145,7 +145,8 @@ mod tests {
     use super::*;
     use nspr::error::{PR_NOT_CONNECTED_ERROR, PR_IS_CONNECTED_ERROR, PR_END_OF_FILE_ERROR};
     use std::net::{SocketAddr,SocketAddrV4,Ipv4Addr};
-    use std::cell::{Cell,RefCell};
+    use std::sync::Mutex;
+    use std::sync::atomic::{AtomicBool, Ordering};
     use std::time::Duration;
 
     #[test]
@@ -160,15 +161,15 @@ mod tests {
         }
 
         struct FakeSocket<'a> {
-            connected: Cell<bool>,
-            written: RefCell<&'a mut Vec<u8>>,
+            connected: AtomicBool,
+            written: Mutex<&'a mut Vec<u8>>,
         }
 
         impl<'a> FakeSocket<'a> {
             fn new(buf: &'a mut Vec<u8>) -> Self {
                 FakeSocket {
-                    connected: Cell::new(false),
-                    written: RefCell::new(buf),
+                    connected: AtomicBool::new(false),
+                    written: Mutex::new(buf),
                 }
             }
         }
@@ -178,7 +179,7 @@ mod tests {
                 Ok(0)
             }
             fn write(&self, buf: &[u8]) -> Result<usize> {
-                self.written.borrow_mut().extend_from_slice(buf);
+                self.written.lock().unwrap().extend_from_slice(buf);
                 Ok(buf.len())
             }
             fn send(&self, buf: &[u8], _timeout: Option<Duration>) -> Result<usize> {
@@ -189,7 +190,7 @@ mod tests {
                 self.read(buf)
             }
             fn getpeername(&self) -> Result<SocketAddr> {
-                if self.connected.get() {
+                if self.connected.load(Ordering::SeqCst) {
                     Ok(fake_addr())
                 } else {
                     Err(PR_NOT_CONNECTED_ERROR.into())
@@ -197,11 +198,10 @@ mod tests {
             }
             fn connect(&self, addr: SocketAddr, _timeout: Option<Duration>) -> Result<()> {
                 assert_eq!(addr, fake_addr());
-                if self.connected.get() {
+                if self.connected.swap(true, Ordering::SeqCst) {
                     // Shouldn't be used but might as well:
                     Err(PR_IS_CONNECTED_ERROR.into())
                 } else {
-                    self.connected.set(true);
                     Ok(())
                 }
             }
