@@ -246,6 +246,9 @@ pub struct WrappedFileImpl<Inner: FileMethods> {
     _methods_ref: Arc<ffi::PRIOMethods>,
     inner: Inner,
 }
+// Yet more OIBIT forwarding, sigh.
+unsafe impl<Inner: FileMethods + Send> Send for WrappedFileImpl<Inner> { }
+unsafe impl<Inner: FileMethods + Sync> Sync for WrappedFileImpl<Inner> { }
 
 impl<Inner: FileMethods> Deref for WrappedFileImpl<Inner> {
     type Target = Inner;
@@ -306,7 +309,7 @@ impl<Inner: FileMethods> FileWrapper<Inner> {
         }
     }
 
-    pub fn wrap(&self, inner: Inner) -> File<Inner> {
+    pub fn wrap(&self, inner: Inner) -> File<WrappedFileImpl<Inner>> {
         let methods_raw = self.methods_ref.deref() as *const _;
         let mut boxed = Box::new(WrappedFileImpl {
             prfd: ffi::PRFileDesc {
