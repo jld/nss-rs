@@ -7,16 +7,18 @@ pub mod cert;
 
 use libc::c_void;
 use nss_sys as ffi;
+use std::borrow::Borrow;
 use std::ffi::CStr;
 use std::marker::PhantomData;
 use std::mem;
+use std::ops::{Deref,DerefMut};
 use std::ptr;
 use std::slice;
 
 pub use nspr::error::{Error, Result, failed, PR_WOULD_BLOCK_ERROR};
 pub use nspr::fd::{File, FileMethods, FileWrapper};
 pub use cert::Certificate;
-use nspr::fd::{RawFile, BorrowedFile, WrappedFileImpl};
+use nspr::fd::{RawFile, BorrowedFile};
 use nspr::bool_from_nspr;
 
 fn result_secstatus(status: ffi::SECStatus) -> Result<()> {
@@ -46,21 +48,57 @@ pub struct TLSMarker<Inner>(PhantomData<Inner>);
 // As long as the NSPR bindings are in the same crate, doing this as a
 // type equation still allows adding impls/inherents; otherwise it
 // would need to be a newtype with a bunch of conversion traits.
-pub type TLSSocket<Inner> = File<TLSMarker<Inner>>;
+pub struct TLSSocket<Inner, Callbacks> {
+    file: File<TLSMarker<Inner>>,
+    callbacks: Callbacks
+}
 
-impl<Inner> TLSSocket<Inner> {
-    pub fn new(inner: File<Inner>) -> Result<Self> {
-        Self::new_with_model(inner, None)
+impl<Inner, Callbacks> Deref for TLSSocket<Inner, Callbacks> {
+    type Target = File<TLSMarker<Inner>>;
+    fn deref(&self) -> &Self::Target {
+        &self.file
     }
-    pub fn new_with_model(inner: File<Inner>, model: Option<Self>) -> Result<Self>
+}
+impl<Inner, Callbacks> DerefMut for TLSSocket<Inner, Callbacks> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.file
+    }
+}
+
+impl<Inner, Callbacks> Borrow<File<TLSMarker<Inner>>> for TLSSocket<Inner, Callbacks> {
+    fn borrow(&self) -> &File<TLSMarker<Inner>> {
+        &self.file
+    }
+}
+
+impl<Inner, Callbacks> TLSSocket<Inner, Callbacks> {
+    pub fn new(inner: File<Inner>, callbacks: Callbacks) -> Result<Self> {
+        Self::new_with_model(inner, callbacks, None)
+    }
+    pub fn new_with_model(inner: File<Inner>, callbacks: Callbacks, model: Option<Self>)
+                          -> Result<Self>
     {
+        if let Some(_) = model {
+            // This will copy the callbacks; need to unset or fix them.
+            unimplemented!();
+        }
         let raw_model = model.map_or(nspr::fd::null(), |fd| fd.as_raw_prfd());
         unsafe {
             let raw = ffi::SSL_ImportFD(raw_model, inner.as_raw_prfd());
             let sock = try!(File::from_raw_prfd_err(raw));
             mem::forget(inner);
-            Ok(sock)
+            Ok(TLSSocket {
+                file: sock,
+                callbacks: callbacks
+            })
         }
+    }
+
+    pub fn callbacks(&self) -> &Callbacks {
+        &self.callbacks
+    }
+    pub fn callbacks_mut(&mut self) -> &mut Callbacks {
+        &mut self.callbacks
     }
 
     pub fn unset_bad_cert_hook(&mut self) -> Result<()> {
@@ -70,6 +108,7 @@ impl<Inner> TLSSocket<Inner> {
         })
     }
 
+    // FIXME: turn this into an actual callback now that that's possible?
     pub fn disable_security(&mut self) -> Result<()> {
         unsafe extern "C" fn this_is_fine(_arg: *mut c_void, _fd: RawFile) -> ffi::SECStatus {
             ffi::SECSuccess
@@ -92,12 +131,18 @@ impl<Inner> TLSSocket<Inner> {
     }
 
     pub fn use_auth_certificate_hook(&mut self) -> Result<()>
-        where Inner: AuthCertificateHook<Inner>
+        where Callbacks: AuthCertificateHook<Inner>
     {
         result_secstatus(unsafe {
             ffi::SSL_AuthCertificateHook(self.as_raw_prfd(),
-                                         Some(raw_auth_certificate_hook::<Inner>),
-                                         ptr::null_mut())
+                                         Some(raw_auth_certificate_hook::<Inner, Callbacks>),
+                                         mem::transmute(self as &Self))
+        })
+    }
+
+    pub fn unset_auth_certificate_hook(&mut self) -> Result<()> {
+        result_secstatus(unsafe {
+            ffi::SSL_AuthCertificateHook(self.as_raw_prfd(), None, ptr::null_mut())
         })
     }
 
@@ -108,33 +153,24 @@ impl<Inner> TLSSocket<Inner> {
     }
 }
 
-pub trait AuthCertificateHook<Inner> {
-    fn auth_certificate(&self, sock: &TLSSocket<Inner>, check_sig: bool, is_server: bool)
+pub trait AuthCertificateHook<Inner>: Sized {
+    fn auth_certificate(&self, sock: &TLSSocket<Inner, Self>, check_sig: bool, is_server: bool)
         -> Result<()>;
 }
 
-impl<Inner, MoreInner> AuthCertificateHook<Inner> for WrappedFileImpl<MoreInner>
-    where MoreInner: FileMethods + AuthCertificateHook<Inner>
-{
-    fn auth_certificate(&self, socket: &TLSSocket<Inner>, check_sig: bool, is_server: bool)
-        -> Result<()>
-    {
-        MoreInner::auth_certificate(self, socket, check_sig, is_server)
-    }
-}
-
-unsafe extern "C" fn raw_auth_certificate_hook<Inner>(_arg: *mut c_void,
-                                                      fd: *mut ffi::nspr::PRFileDesc,
-                                                      check_sig: ffi::nspr::PRBool,
-                                                      is_server: ffi::nspr::PRBool)
-                                                      -> ffi::SECStatus
-    where Inner: AuthCertificateHook<Inner>
+unsafe extern "C" fn raw_auth_certificate_hook<Inner, Callbacks>(arg: *mut c_void,
+                                                                 fd: *mut ffi::nspr::PRFileDesc,
+                                                                 check_sig: ffi::nspr::PRBool,
+                                                                 is_server: ffi::nspr::PRBool)
+                                                                 -> ffi::SECStatus
+    where Callbacks: AuthCertificateHook<Inner>
 {
     // TODO: check identity?
-    let sock: BorrowedFile<TLSMarker<Inner>> = BorrowedFile::from_raw_prfd_ref(&fd);
-    match sock.cleartext().get_ref().auth_certificate(&sock,
-                                                      bool_from_nspr(check_sig),
-                                                      bool_from_nspr(is_server)) {
+    let sock: &TLSSocket<Inner, Callbacks> = mem::transmute(arg);
+    assert_eq!(sock.as_raw_prfd(), fd);
+    match sock.callbacks().auth_certificate(sock,
+                                            bool_from_nspr(check_sig),
+                                            bool_from_nspr(is_server)) {
         Ok(()) => ffi::SECSuccess,
         Err(err) => { err.set(); ffi::SECFailure }
     }
@@ -212,7 +248,7 @@ mod tests {
         let buf = inner.written.clone();
         let sock_factory = FileWrapper::new(nspr::fd::PR_DESC_SOCKET_TCP);
         let sock = sock_factory.wrap(inner);
-        let ssl = TLSSocket::new(sock).unwrap();
+        let ssl = TLSSocket::new(sock, ()).unwrap();
         ssl.connect(fake_addr(), None).unwrap();
         assert_eq!(ssl.write(&[]).unwrap_err().nspr_error, PR_END_OF_FILE_ERROR);
         println!("DATA: {:?}", &buf.lock().unwrap()[..]);
