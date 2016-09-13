@@ -98,7 +98,7 @@ impl<Inner> TLSSocket<Inner> {
                                                           Some(raw_auth_certificate_hook::<Inner>),
                                                           ptr::null_mut()))
         }
-    }    
+    }
 }
 
 pub trait AuthCertificateHook<Inner> {
