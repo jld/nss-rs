@@ -1,6 +1,6 @@
 use libc::{c_char, c_uint, c_int, c_void};
 use nspr::{PLArenaPool, PRBool, PRUint32};
-use super::{SECItem, SECAlgorithmID, NSSTrustDomainStr, NSSCertificateStr, PK11SlotInfo, CK_OBJECT_HANDLE};
+use super::{SECItem, SECAlgorithmID, NSSTrustDomainStr, NSSCertificateStr, PK11SlotInfo, CK_OBJECT_HANDLE, SECStatus};
 
 pub type CERTCertificate = CERTCertificateStr;
 pub type CERTSignedData = CERTSignedDataStr;
@@ -180,4 +180,5 @@ pub enum CERTGeneralNameStr { }
 
 extern "C" {
     pub fn CERT_DestroyCertificate(cert: *mut CERTCertificate);
+    pub fn CERT_VerifyCertName(cert: *const CERTCertificate, hn: *const c_char) -> SECStatus;
 }

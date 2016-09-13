@@ -4,9 +4,10 @@ extern crate nss;
 use hyper::net::{NetworkStream, SslClient};
 use nss::{FileMethods, FileWrapper, TLSSocket, AuthCertificateHook};
 use nss::nspr::error::PR_NOT_CONNECTED_ERROR;
-use nss::nspr::fd::PR_DESC_SOCKET_TCP;
+use nss::nspr::fd::{PR_DESC_SOCKET_TCP, WrappedFileImpl};
 
 use std::any::Any;
+use std::ffi::CString;
 use std::io;
 use std::io::{Read, Write};
 use std::net::SocketAddr;
@@ -15,7 +16,7 @@ use std::time::Duration;
 
 pub struct NssClient<N: NetworkStream = hyper::net::HttpStream> {
     factory: FileWrapper<StreamToFile<N>>,
-} 
+}
 
 impl<N: NetworkStream> NssClient<N> {
     pub fn new() -> Self {
@@ -31,15 +32,15 @@ macro_rules! nss_try {
 }
 
 impl<N: NetworkStream + Clone> SslClient<N> for NssClient<N> {
-    type Stream = FileToStream<TLSSocket<StreamToFile<N>>>;
+    type Stream = FileToStream<TLSSocket<WrappedFileImpl<StreamToFile<N>>>>;
 
-    fn wrap_client(&self, mut stream: N, _host: &str) -> hyper::error::Result<Self::Stream> {
+    fn wrap_client(&self, mut stream: N, host: &str) -> hyper::error::Result<Self::Stream> {
         let peer_addr = try!(stream.peer_addr());
-        let backend = StreamToFile::new(stream);
+        let backend = StreamToFile::new(stream, CString::new(host).unwrap());
         let inner = self.factory.wrap(backend);
         let mut outer = nss_try!(TLSSocket::new(inner));
+        nss_try!(outer.set_url(&outer.cleartext().get_ref().host_name)); // ...
         nss_try!(outer.use_auth_certificate_hook());
-        // nss_try!(outer.disable_security());
         // This "connect" just fixes NSS's state; handshake isn't send until first write.
         nss_try!(outer.connect(peer_addr, None));
         Ok(FileToStream::new(outer))
@@ -48,6 +49,7 @@ impl<N: NetworkStream + Clone> SslClient<N> for NssClient<N> {
 
 pub struct StreamToFile<N: NetworkStream> {
     inner: Mutex<StreamToFileInner<N>>,
+    pub host_name: CString,
 }
 
 struct StreamToFileInner<N: NetworkStream> {
@@ -70,8 +72,9 @@ impl Timeouts {
 }
 
 impl<N: NetworkStream> StreamToFile<N> {
-    pub fn new(stream: N) -> Self {
+    pub fn new(stream: N, host_name: CString) -> Self {
         StreamToFile {
+            host_name: host_name,
             inner: Mutex::new(StreamToFileInner {
                 stream: stream,
                 timeouts: Timeouts::new(),
@@ -137,8 +140,9 @@ impl<N: NetworkStream, Outer> AuthCertificateHook<Outer> for StreamToFile<N> {
         assert!(check_sig);
         assert!(!is_server);
         let cert = sock.peer_cert().expect("server didn't present certificate!");
-        println!("Certificate = {:?}", cert.as_der());
-        Ok(())
+        let res = cert.verify_name(&self.host_name);
+        println!("Verifying for {:?}: {:?}", self.host_name, res);
+        res
     }
 }
 

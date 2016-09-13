@@ -9,7 +9,7 @@ pub mod cert;
 use libc::{c_char, c_uchar, c_uint, c_ulong, c_void};
 use nspr::{PRFileDesc, PRBool};
 
-pub use cert::{CERTCertificate, CERT_DestroyCertificate};
+pub use cert::{CERTCertificate, CERT_DestroyCertificate, CERT_VerifyCertName};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[repr(C)]
@@ -83,6 +83,7 @@ extern "C" {
                                    -> SECStatus;
     pub fn SSL_BadCertHook(fd: *mut PRFileDesc, f: SSLBadCertHandler, arg: *mut c_void)
                            -> SECStatus;
+    pub fn SSL_SetURL(fd: *mut PRFileDesc, url: *const c_char) -> SECStatus;
 }
 
 

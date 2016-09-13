@@ -1,5 +1,6 @@
 use nss_sys as ffi;
-use super::sec_item_as_slice;
+use super::{sec_item_as_slice, result_secstatus, Result};
+use std::ffi::CStr;
 use std::mem;
 use std::ptr;
 
@@ -18,11 +19,12 @@ impl Certificate {
         }
     }
     pub fn into_raw_ptr(self) -> *mut ffi::CERTCertificate {
-        let ptr = self.as_raw_ptr();
+        let ptr = self.0;
+        debug_assert!(ptr != ptr::null_mut());
         mem::forget(self);
         ptr
     }
-    pub fn as_raw_ptr(&self) -> *mut ffi::CERTCertificate {
+    pub fn as_raw_ptr(&self) -> *const ffi::CERTCertificate {
         debug_assert!(self.0 != ptr::null_mut());
         self.0
     }
@@ -34,6 +36,12 @@ impl Certificate {
         unsafe {
             sec_item_as_slice(&self.as_ffi_ref().derCert)
         }
+    }
+
+    pub fn verify_name(&self, host_name: &CStr) -> Result<()> {
+        result_secstatus(unsafe {
+            ffi::CERT_VerifyCertName(self.as_raw_ptr(), host_name.as_ptr())
+        })
     }
 }
 

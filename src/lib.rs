@@ -7,6 +7,7 @@ pub mod cert;
 
 use libc::c_void;
 use nss_sys as ffi;
+use std::ffi::CStr;
 use std::marker::PhantomData;
 use std::mem;
 use std::ptr;
@@ -93,11 +94,17 @@ impl<Inner> TLSSocket<Inner> {
     pub fn use_auth_certificate_hook(&mut self) -> Result<()>
         where Inner: AuthCertificateHook<Inner>
     {
-        unsafe {
-            result_secstatus(ffi::SSL_AuthCertificateHook(self.as_raw_prfd(),
-                                                          Some(raw_auth_certificate_hook::<Inner>),
-                                                          ptr::null_mut()))
-        }
+        result_secstatus(unsafe {
+            ffi::SSL_AuthCertificateHook(self.as_raw_prfd(),
+                                         Some(raw_auth_certificate_hook::<Inner>),
+                                         ptr::null_mut())
+        })
+    }
+
+    pub fn set_url(&self, url: &CStr) -> Result<()> {
+        result_secstatus(unsafe {
+            ffi::SSL_SetURL(self.as_raw_prfd(), url.as_ptr())
+        })
     }
 }
 
