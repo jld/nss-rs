@@ -229,7 +229,7 @@ pub struct FileWrapper<Inner: FileMethods> {
     phantom: PhantomData<fn(Inner)>,
 }
 
-pub struct WrappedFileImpl<Inner: FileMethods> {
+struct WrappedFileImpl<Inner: FileMethods> {
     prfd: ffi::PRFileDesc,
     _methods_ref: Arc<ffi::PRIOMethods>,
     inner: Inner,

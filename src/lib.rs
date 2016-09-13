@@ -10,7 +10,7 @@ use nss_sys as ffi;
 use std::borrow::Borrow;
 use std::ffi::CStr;
 use std::mem;
-use std::ops::{Deref,DerefMut};
+use std::ops::Deref;
 use std::ptr;
 use std::slice;
 
@@ -43,26 +43,34 @@ pub unsafe fn sec_item_as_slice(item: &ffi::SECItem) -> &[u8] {
     slice::from_raw_parts(item.data, item.len as usize)
 }
 
-pub struct TLSSocket<Callbacks> {
+// This is a newtype so that it can have traits on it.
+pub struct TLSSocket<Callbacks>(Box<TLSSocketImpl<Callbacks>>);
+// This isn't a newtype so that Deref etc. can return it.
+pub type BorrowedTLSSocket<'a, Callbacks> = &'a TLSSocketImpl<Callbacks>;
+
+pub struct TLSSocketImpl<Callbacks> {
     file: File,
     callbacks: Callbacks,
 }
 
 impl<Callbacks> Deref for TLSSocket<Callbacks> {
-    type Target = File;
+    type Target = TLSSocketImpl<Callbacks>;
     fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+impl<Callbacks> Deref for TLSSocketImpl<Callbacks> {
+    type Target = File;
+    fn deref(&self) -> &File {
         &self.file
     }
 }
-impl<Callbacks> DerefMut for TLSSocket<Callbacks> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.file
-    }
-}
+// DerefMut would be unsound -- could shuffle sockets holding pointers to callbacks
 
+// So that there's a type inhabited by both File and TLSSocket<_>.
 impl<Callbacks> Borrow<File> for TLSSocket<Callbacks> {
     fn borrow(&self) -> &File {
-        &self.file
+        self
     }
 }
 
@@ -79,38 +87,32 @@ impl<Callbacks> TLSSocket<Callbacks> {
         let raw_model = model.map_or(nspr::fd::null(), |fd| fd.as_raw_prfd());
         unsafe {
             let raw = ffi::SSL_ImportFD(raw_model, inner.as_raw_prfd());
-            let sock = try!(File::from_raw_prfd_err(raw));
+            let file = try!(File::from_raw_prfd_err(raw));
             mem::forget(inner);
-            Ok(TLSSocket {
-                file: sock,
-                callbacks: callbacks
-            })
+            Ok(TLSSocket(Box::new(TLSSocketImpl {
+                file: file,
+                callbacks: callbacks,
+            })))
         }
     }
 
+    pub fn use_auth_certificate_hook(&mut self) -> Result<()>
+        where Callbacks: AuthCertificateHook
+    {
+        let this: BorrowedTLSSocket<_> = &*self;
+        result_secstatus(unsafe {
+            ffi::SSL_AuthCertificateHook(self.as_raw_prfd(),
+                                         Some(raw_auth_certificate_hook::<Callbacks>),
+                                         mem::transmute(this))
+        })
+    }
+}
+
+impl<Callbacks> TLSSocketImpl<Callbacks> {
     pub fn callbacks(&self) -> &Callbacks {
         &self.callbacks
     }
-    pub fn callbacks_mut(&mut self) -> &mut Callbacks {
-        &mut self.callbacks
-    }
-
-    pub fn unset_bad_cert_hook(&mut self) -> Result<()> {
-        // This doesn't take locks in the C code, so needs a unique ref.
-        result_secstatus(unsafe {
-            ffi::SSL_BadCertHook(self.as_raw_prfd(), None, ptr::null_mut())
-        })
-    }
-
-    // FIXME: turn this into an actual callback now that that's possible?
-    pub fn disable_security(&mut self) -> Result<()> {
-        unsafe extern "C" fn this_is_fine(_arg: *mut c_void, _fd: RawFile) -> ffi::SECStatus {
-            ffi::SECSuccess
-        }
-        result_secstatus(unsafe {
-            ffi::SSL_BadCertHook(self.as_raw_prfd(), Some(this_is_fine), ptr::null_mut())
-        })
-    }
+    // callbacks_mut would be sound, but would anything use it?
 
     pub fn peer_cert(&self) -> Option<Certificate> {
         unsafe { 
@@ -124,13 +126,16 @@ impl<Callbacks> TLSSocket<Callbacks> {
         }
     }
 
-    pub fn use_auth_certificate_hook(&mut self) -> Result<()>
-        where Callbacks: AuthCertificateHook
-    {
+    pub fn set_url(&self, url: &CStr) -> Result<()> {
         result_secstatus(unsafe {
-            ffi::SSL_AuthCertificateHook(self.as_raw_prfd(),
-                                         Some(raw_auth_certificate_hook::<Callbacks>),
-                                         mem::transmute(self as &Self))
+            ffi::SSL_SetURL(self.as_raw_prfd(), url.as_ptr())
+        })
+    }
+
+    pub fn unset_bad_cert_hook(&mut self) -> Result<()> {
+        // This doesn't take locks in the C code, so needs a unique ref.
+        result_secstatus(unsafe {
+            ffi::SSL_BadCertHook(self.as_raw_prfd(), None, ptr::null_mut())
         })
     }
 
@@ -140,15 +145,19 @@ impl<Callbacks> TLSSocket<Callbacks> {
         })
     }
 
-    pub fn set_url(&self, url: &CStr) -> Result<()> {
+    // FIXME: turn this into an actual callback now that that's possible?
+    pub fn disable_security(&mut self) -> Result<()> {
+        unsafe extern "C" fn this_is_fine(_arg: *mut c_void, _fd: RawFile) -> ffi::SECStatus {
+            ffi::SECSuccess
+        }
         result_secstatus(unsafe {
-            ffi::SSL_SetURL(self.as_raw_prfd(), url.as_ptr())
+            ffi::SSL_BadCertHook(self.as_raw_prfd(), Some(this_is_fine), ptr::null_mut())
         })
     }
 }
 
 pub trait AuthCertificateHook: Sized {
-    fn auth_certificate(&self, sock: &TLSSocket<Self>, check_sig: bool, is_server: bool)
+    fn auth_certificate(&self, sock: BorrowedTLSSocket<Self>, check_sig: bool, is_server: bool)
                         -> Result<()>;
 }
 
@@ -160,11 +169,11 @@ unsafe extern "C" fn raw_auth_certificate_hook<Callbacks>(arg: *mut c_void,
     where Callbacks: AuthCertificateHook
 {
     // TODO: check identity?
-    let sock: &TLSSocket<Callbacks> = mem::transmute(arg);
-    assert_eq!(sock.as_raw_prfd(), fd);
-    match sock.callbacks().auth_certificate(sock,
-                                            bool_from_nspr(check_sig),
-                                            bool_from_nspr(is_server)) {
+    let this: BorrowedTLSSocket<Callbacks> = mem::transmute(arg);
+    assert_eq!(this.as_raw_prfd(), fd);
+    match this.callbacks.auth_certificate(this,
+                                          bool_from_nspr(check_sig),
+                                          bool_from_nspr(is_server)) {
         Ok(()) => ffi::SECSuccess,
         Err(err) => { err.set(); ffi::SECFailure }
     }

@@ -2,11 +2,12 @@ extern crate hyper;
 extern crate nss;
 
 use hyper::net::{NetworkStream, SslClient};
-use nss::{FileMethods, FileWrapper, TLSSocket, AuthCertificateHook};
+use nss::{File, FileMethods, FileWrapper, TLSSocket, BorrowedTLSSocket, AuthCertificateHook};
 use nss::nspr::error::PR_NOT_CONNECTED_ERROR;
-use nss::nspr::fd::{PR_DESC_SOCKET_TCP, WrappedFileImpl};
+use nss::nspr::fd::PR_DESC_SOCKET_TCP;
 
 use std::any::Any;
+use std::borrow::Borrow;
 use std::ffi::CString;
 use std::io;
 use std::io::{Read, Write};
@@ -32,14 +33,16 @@ macro_rules! nss_try {
 }
 
 impl<N: NetworkStream + Clone> SslClient<N> for NssClient<N> {
-    type Stream = FileToStream<TLSSocket<WrappedFileImpl<StreamToFile<N>>>>;
+    type Stream = FileToStream<TLSSocket<NSSCallbacks>>;
 
     fn wrap_client(&self, mut stream: N, host: &str) -> hyper::error::Result<Self::Stream> {
         let peer_addr = try!(stream.peer_addr());
-        let backend = StreamToFile::new(stream, CString::new(host).unwrap());
+        let backend = StreamToFile::new(stream);
         let inner = self.factory.wrap(backend);
-        let mut outer = nss_try!(TLSSocket::new(inner));
-        nss_try!(outer.set_url(&outer.cleartext().get_ref().host_name)); // ...
+        let callbacks = NSSCallbacks { host_name: CString::new(host).unwrap() };
+        let mut outer = nss_try!(TLSSocket::new(inner, callbacks));
+        // FIXME: should this be in an `on_register` method or someting?
+        nss_try!(outer.set_url(&outer.callbacks().host_name));
         nss_try!(outer.use_auth_certificate_hook());
         // This "connect" just fixes NSS's state; handshake isn't send until first write.
         nss_try!(outer.connect(peer_addr, None));
@@ -47,9 +50,23 @@ impl<N: NetworkStream + Clone> SslClient<N> for NssClient<N> {
     }
 }
 
+pub struct NSSCallbacks {
+    host_name: CString
+}
+impl AuthCertificateHook for NSSCallbacks {
+    fn auth_certificate(&self, sock: BorrowedTLSSocket<Self>, check_sig: bool, is_server: bool)
+                        -> nss::Result<()> {
+        assert!(check_sig);
+        assert!(!is_server);
+        let cert = sock.peer_cert().expect("server didn't present certificate!");
+        let res = cert.verify_name(&self.host_name);
+        println!("Verifying for {:?}: {:?}", self.host_name, res);
+        res
+    }
+}
+
 pub struct StreamToFile<N: NetworkStream> {
     inner: Mutex<StreamToFileInner<N>>,
-    pub host_name: CString,
 }
 
 struct StreamToFileInner<N: NetworkStream> {
@@ -72,9 +89,8 @@ impl Timeouts {
 }
 
 impl<N: NetworkStream> StreamToFile<N> {
-    pub fn new(stream: N, host_name: CString) -> Self {
+    pub fn new(stream: N) -> Self {
         StreamToFile {
-            host_name: host_name,
             inner: Mutex::new(StreamToFileInner {
                 stream: stream,
                 timeouts: Timeouts::new(),
@@ -134,20 +150,9 @@ impl<N: NetworkStream> FileMethods for StreamToFile<N> {
     }
 }
 
-impl<N: NetworkStream, Outer> AuthCertificateHook<Outer> for StreamToFile<N> {
-    fn auth_certificate(&self, sock: &TLSSocket<Outer>, check_sig: bool, is_server: bool)
-                        -> nss::Result<()> {
-        assert!(check_sig);
-        assert!(!is_server);
-        let cert = sock.peer_cert().expect("server didn't present certificate!");
-        let res = cert.verify_name(&self.host_name);
-        println!("Verifying for {:?}: {:?}", self.host_name, res);
-        res
-    }
-}
 
 pub struct FileToStream<F>
-    where F: FileMethods + Send + Sync + Any
+    where F: Borrow<File> + Send + Sync + Any
 {
     // This Arc is because network streams need to be Clone... because
     // they're like file descriptors, I guess?  But what does that
@@ -159,7 +164,7 @@ pub struct FileToStream<F>
 // Can't derive this because derive insists the type param be Clone
 // even though that doesn't matter because Arc.  Sigh.
 impl<F> Clone for FileToStream<F>
-    where F: FileMethods + Send + Sync + Any
+    where F: Borrow<File> + Send + Sync + Any
 {
     fn clone(&self) -> Self {
         FileToStream { inner: self.inner.clone() }
@@ -167,7 +172,7 @@ impl<F> Clone for FileToStream<F>
 }
 
 struct FileToStreamInner<F>
-    where F: FileMethods + Send + Sync + Any
+    where F: Borrow<File> + Send + Sync + Any
 {
     file: F,
     // This Mutex is because the timeouts are changed by &self methods,
@@ -177,7 +182,7 @@ struct FileToStreamInner<F>
 }
 
 impl<F> FileToStream<F>
-    where F: FileMethods + Send + Sync + Any
+    where F: Borrow<File> + Send + Sync + Any
 {
     pub fn new(file: F) -> Self {
         FileToStream {
@@ -190,21 +195,21 @@ impl<F> FileToStream<F>
 }
 
 impl<F> Read for FileToStream<F>
-    where F: FileMethods + Send + Sync + Any
+    where F: Borrow<File> + Send + Sync + Any
 {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         let timeout = self.inner.timeouts.lock().unwrap().read;
         // Is there some reason why try! insists on From instead of the weaker bound Into?
-        self.inner.file.recv(buf, false, timeout).map_err(Into::into)
+        self.inner.file.borrow().recv(buf, false, timeout).map_err(Into::into)
     }
 }
 
 impl<F> Write for FileToStream<F>
-    where F: FileMethods + Send + Sync + Any
+    where F: Borrow<File> + Send + Sync + Any
 {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         let timeout = self.inner.timeouts.lock().unwrap().write;
-        self.inner.file.send(buf, timeout).map_err(Into::into)
+        self.inner.file.borrow().send(buf, timeout).map_err(Into::into)
     }
     fn flush(&mut self) -> io::Result<()> {
         Ok(())
@@ -212,10 +217,10 @@ impl<F> Write for FileToStream<F>
 }
 
 impl<F> NetworkStream for FileToStream<F>
-    where F: FileMethods + Send + Sync + Any
+    where F: Borrow<File> + Send + Sync + Any
 {
     fn peer_addr(&mut self) -> io::Result<SocketAddr> {
-        self.inner.file.getpeername().map_err(Into::into)
+        self.inner.file.borrow().getpeername().map_err(Into::into)
     }
     fn set_read_timeout(&self, dur: Option<Duration>) -> io::Result<()> {
         self.inner.timeouts.lock().unwrap().read = dur;
