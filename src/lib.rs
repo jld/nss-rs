@@ -10,7 +10,7 @@ use nss_sys as ffi;
 use std::borrow::Borrow;
 use std::ffi::CStr;
 use std::mem;
-use std::ops::Deref;
+use std::ops::{Deref,DerefMut};
 use std::ptr;
 use std::slice;
 
@@ -57,6 +57,11 @@ impl<Callbacks> Deref for TLSSocket<Callbacks> {
     type Target = TLSSocketImpl<Callbacks>;
     fn deref(&self) -> &Self::Target {
         &self.0
+    }
+}
+impl<Callbacks> DerefMut for TLSSocket<Callbacks> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
     }
 }
 impl<Callbacks> Deref for TLSSocketImpl<Callbacks> {
