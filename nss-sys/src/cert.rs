@@ -1,7 +1,9 @@
 use libc::{c_char, c_uint, c_int, c_void};
-use nspr::{PLArenaPool, PRBool, PRUint32};
+use nspr::{PLArenaPool, PRBool, PRUint32, PRCList};
 use super::{SECItem, SECAlgorithmID, NSSTrustDomainStr, NSSCertificateStr, PK11SlotInfo, CK_OBJECT_HANDLE, SECStatus};
 
+pub type CERTCertList = CERTCertListStr;
+pub type CERTCertListNode = CERTCertListNodeStr;
 pub type CERTCertificate = CERTCertificateStr;
 pub type CERTSignedData = CERTSignedDataStr;
 pub type CERTName = CERTNameStr;
@@ -17,6 +19,21 @@ pub type CERTSubjectList = CERTSubjectListStr;
 pub type CERTSubjectNode = CERTSubjectNodeStr;
 pub type CERTAuthKeyID = CERTAuthKeyIDStr;
 pub type CERTGeneralName = CERTGeneralNameStr;
+
+#[derive(Debug)]
+#[repr(C)]
+pub struct CERTCertListStr {
+    pub list: PRCList,
+    pub arena: *mut PLArenaPool,
+}
+
+#[derive(Debug)]
+#[repr(C)]
+pub struct CERTCertListNodeStr {
+    pub links: PRCList,
+    pub cert: *mut CERTCertificate,
+    pub appData: *mut c_void,
+}
 
 #[derive(Debug)]
 #[repr(C)]
@@ -180,5 +197,6 @@ pub enum CERTGeneralNameStr { }
 
 extern "C" {
     pub fn CERT_DestroyCertificate(cert: *mut CERTCertificate);
+    pub fn CERT_DestroyCertList(cert: *mut CERTCertList);
     pub fn CERT_VerifyCertName(cert: *const CERTCertificate, hn: *const c_char) -> SECStatus;
 }

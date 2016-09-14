@@ -58,7 +58,14 @@ impl AuthCertificateHook for NSSCallbacks {
                         -> nss::Result<()> {
         assert!(check_sig);
         assert!(!is_server);
+        {
+            let chain = sock.peer_cert_chain().expect("server didn't present certificates!");
+            for (i, cert) in chain.iter().enumerate().skip(1) {
+                println!("Intermediate cert #{} has length {}", i, cert.as_der().len());
+            }
+        }
         let cert = sock.peer_cert().expect("server didn't present certificate!");
+        println!("End entity cert has length {}", cert.as_der().len());
         let res = cert.verify_name(&self.host_name);
         println!("Verifying for {:?}: {:?}", self.host_name, res);
         res

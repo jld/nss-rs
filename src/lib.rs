@@ -16,7 +16,7 @@ use std::slice;
 
 pub use nspr::error::{Error, Result, failed, PR_WOULD_BLOCK_ERROR};
 pub use nspr::fd::{File, FileMethods, FileWrapper};
-pub use cert::Certificate;
+pub use cert::{Certificate, CertList};
 use nspr::fd::{RawFile, BorrowedFile};
 use nspr::bool_from_nspr;
 
@@ -122,6 +122,12 @@ impl<Callbacks> TLSSocketImpl<Callbacks> {
     pub fn peer_cert(&self) -> Option<Certificate> {
         unsafe { 
             Certificate::from_raw_ptr_opt(ffi::SSL_PeerCertificate(self.as_raw_prfd()))
+        }
+    }
+
+    pub fn peer_cert_chain(&self) -> Option<CertList> {
+        unsafe {
+            CertList::from_raw_ptr_opt(ffi::SSL_PeerCertificateChain(self.as_raw_prfd()))
         }
     }
 

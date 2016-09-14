@@ -6,6 +6,7 @@ pub mod time;
 use nss_sys::nspr as ffi;
 use nspr::error::{Result, failed};
 
+use std::marker::PhantomData;
 use std::sync::{Once, ONCE_INIT};
 
 pub use self::error::Error;
@@ -55,5 +56,58 @@ pub fn bool_to_nspr(b: bool) -> ffi::PRBool {
         ffi::PR_TRUE
     } else {
         ffi::PR_FALSE
+    }
+}
+
+
+pub type ListNode = *mut ffi::PRCList;
+
+pub trait Listable {
+    unsafe fn from_list_node(node: ListNode) -> Self;
+}
+
+#[derive(Clone, Debug)]
+pub struct ListIterator<'l, L: Listable + 'l> {
+    next: ListNode,
+    end: ListNode,
+    phantom: PhantomData<&'l [L]>,
+}
+
+impl<'l, L: Listable + 'l> ListIterator<'l, L> {
+    pub unsafe fn new(list: ListNode) -> Self {
+        ListIterator {
+            next: (*list).next,
+            end: list,
+            phantom: PhantomData,
+        }
+    }
+}
+
+impl<'l, L: Listable + 'l> Iterator for ListIterator<'l, L> {
+    type Item = L;
+    fn next(&mut self) -> Option<L> {
+        if self.next == self.end {
+            None
+        } else {
+            unsafe {
+                let next = self.next;
+                self.next = (*next).next;
+                Some(Listable::from_list_node(next))
+            }
+        }
+    }
+}
+
+impl<'l, L: Listable + 'l> DoubleEndedIterator for ListIterator<'l, L> {
+    fn next_back(&mut self) -> Option<L> {
+        if self.next == self.end {
+            None
+        } else {
+            unsafe {
+                let prev = (*self.end).prev;
+                self.end = prev;
+                Some(Listable::from_list_node(prev))
+            }
+        }
     }
 }

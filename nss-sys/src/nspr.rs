@@ -560,6 +560,15 @@ pub const PR_MSG_PEEK: PRIntn = 0x2;
 // This has a public definition in C, but we don't currently need it.
 pub enum PLArenaPool { }
 
+pub type PRCList = PRCListStr;
+
+#[derive(Debug)]
+#[repr(C)]
+pub struct PRCListStr {
+    pub next: *mut PRCList,
+    pub prev: *mut PRCList,
+}
+
 extern "C" {
     // N.B. None of these arguments are used.
     pub fn PR_Init(_type: PRThreadType,

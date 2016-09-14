@@ -1,6 +1,6 @@
 [package]
 name = "nss"
-version = "0.6.0"
+version = "0.6.1"
 authors = ["Jed Davis <jld@mozilla.com>"]
 
 [dependencies]
