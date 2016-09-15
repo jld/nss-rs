@@ -75,6 +75,14 @@ impl<'a> Deref for BorrowedCertificate<'a> {
     }
 }
 
+impl<'a> BorrowedCertificate<'a> {
+    // Extend the lifetime a little:
+    // (FIXME: should Certificate deref to BorrowedCertificate<'self> instead?)
+    pub fn as_der(&self) -> &'a [u8] {
+        unsafe { mem::transmute(Certificate::as_der(self)) }
+    }
+}
+
 pub struct CertList(*mut ffi::CERTCertList);
 
 impl CertList {
