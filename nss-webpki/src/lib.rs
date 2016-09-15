@@ -60,6 +60,8 @@ pub static GOOD_SIG_ALGS: &'static [&'static SignatureAlgorithm] = &[
 
 pub use tmp_anchors::TRUST_ANCHORS as TMP_ANCHORS;
 
+// TODO: translate webpki errors to NSS/NSPR errors
+
 #[cfg(test)]
 mod tests {
     use super::*;
