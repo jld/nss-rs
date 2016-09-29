@@ -18,7 +18,7 @@ pub use nspr::error::{Error, Result, failed, PR_WOULD_BLOCK_ERROR};
 pub use nspr::fd::{File, FileMethods, FileWrapper};
 pub use cert::{Certificate, CertList};
 use nspr::fd::{RawFile, BorrowedFile};
-use nspr::bool_from_nspr;
+use nspr::{bool_from_nspr, bool_to_nspr};
 
 fn result_secstatus(status: ffi::SECStatus) -> Result<()> {
     // Must call this immediately after the NSS operation so that the
@@ -165,6 +165,21 @@ impl<Callbacks> TLSSocketImpl<Callbacks> {
             ffi::SSL_BadCertHook(self.as_raw_prfd(), Some(this_is_fine), ptr::null_mut())
         })
     }
+
+    pub fn set_option(&self, option: TLSOption, value: bool) -> Result<()> {
+        result_secstatus(unsafe {
+            ffi::SSL_OptionSet(self.as_raw_prfd(), option.get(), bool_to_nspr(value))
+        })
+    }
+
+    pub fn get_option(&self, option: TLSOption) -> Result<bool> {
+        // Poison this with a bad value; bool_from_nspr will panic if it's still there.
+        let mut value: ffi::nspr::PRBool = 0x5a;
+        try!(result_secstatus(unsafe {
+            ffi::SSL_OptionGet(self.as_raw_prfd(), option.get(), &mut value as *mut _)
+        }));
+        Ok(bool_from_nspr(value))
+    }
 }
 
 pub trait AuthCertificateHook: Sized {
@@ -188,6 +203,53 @@ unsafe extern "C" fn raw_auth_certificate_hook<Callbacks>(arg: *mut c_void,
         Ok(()) => ffi::SECSuccess,
         Err(err) => { err.set(); ffi::SECFailure }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct TLSOption(ffi::nspr::PRInt32);
+
+impl TLSOption {
+    fn get(self) -> ffi::nspr::PRInt32 { self.0 }
+}
+
+macro_rules! def_options {
+    { $($name:ident,)* } => {
+        $(pub const $name: TLSOption = TLSOption(ffi::$name);)*
+    }
+}
+def_options! {
+    SSL_SECURITY,
+    SSL_SOCKS,
+    SSL_REQUEST_CERTIFICATE,
+    SSL_HANDSHAKE_AS_CLIENT,
+    SSL_HANDSHAKE_AS_SERVER,
+    SSL_ENABLE_SSL2,
+    SSL_ENABLE_SSL3,
+    SSL_NO_CACHE,
+    SSL_REQUIRE_CERTIFICATE,
+    SSL_ENABLE_FDX,
+    SSL_V2_COMPATIBLE_HELLO,
+    SSL_ENABLE_TLS,
+    SSL_ROLLBACK_DETECTION,
+    SSL_NO_STEP_DOWN,
+    SSL_BYPASS_PKCS11,
+    SSL_NO_LOCKS,
+    SSL_ENABLE_SESSION_TICKETS,
+    SSL_ENABLE_DEFLATE,
+    SSL_ENABLE_RENEGOTIATION,
+    SSL_REQUIRE_SAFE_NEGOTIATION,
+    SSL_ENABLE_FALSE_START,
+    SSL_CBC_RANDOM_IV,
+    SSL_ENABLE_OCSP_STAPLING,
+    SSL_ENABLE_NPN,
+    SSL_ENABLE_ALPN,
+    SSL_REUSE_SERVER_ECDHE_KEY,
+    SSL_ENABLE_FALLBACK_SCSV,
+    SSL_ENABLE_SERVER_DHE,
+    SSL_ENABLE_EXTENDED_MASTER_SECRET,
+    SSL_ENABLE_SIGNED_CERT_TIMESTAMPS,
+    SSL_REQUIRE_DH_NAMED_GROUPS,
+    SSL_ENABLE_0RTT_DATA,
 }
 
 #[cfg(test)]
