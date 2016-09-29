@@ -7,7 +7,7 @@ use hyper::net::{NetworkStream, SslClient};
 use nss::{File, FileMethods, FileWrapper, TLSSocket, BorrowedTLSSocket, AuthCertificateHook};
 use nss::nspr::error::{PR_NOT_CONNECTED_ERROR,PR_UNKNOWN_ERROR};
 use nss::nspr::fd::PR_DESC_SOCKET_TCP;
-use nss_webpki::{TrustConfig, TMP_ANCHORS, ALL_SIG_ALGS};
+use nss_webpki::{TrustConfig, MOZILLA_ANCHORS, ALL_SIG_ALGS};
 use time::get_time;
 
 use std::any::Any;
@@ -65,7 +65,7 @@ impl AuthCertificateHook for NSSCallbacks {
         // FIXME don't panic
         let chain = sock.peer_cert_chain().expect("server didn't present certificates!");
         let tcfg = TrustConfig {
-            anchors: TMP_ANCHORS,
+            anchors: MOZILLA_ANCHORS,
             sig_algs: ALL_SIG_ALGS,
         };
         tcfg.verify(&chain, self.host_name.as_bytes(), get_time()).map_err(|e| {

@@ -1,9 +1,8 @@
+extern crate mozilla_ca_certs;
 extern crate nss;
 extern crate time;
 extern crate untrusted;
 extern crate webpki;
-
-mod tmp_anchors;
 
 use nss::CertList;
 use time::Timespec;
@@ -58,7 +57,7 @@ pub static GOOD_SIG_ALGS: &'static [&'static SignatureAlgorithm] = &[
     &webpki::RSA_PKCS1_2048_8192_SHA512,
 ];
 
-pub use tmp_anchors::TRUST_ANCHORS as TMP_ANCHORS;
+pub use mozilla_ca_certs::WEBPKI_TRUST_ROOTS as MOZILLA_ANCHORS;
 
 // TODO: translate webpki errors to NSS/NSPR errors
 
@@ -69,7 +68,7 @@ mod tests {
     #[test]
     fn it_works() {
         let _tc = TrustConfig {
-            anchors: TMP_ANCHORS,
+            anchors: MOZILLA_ANCHORS,
             sig_algs: ALL_SIG_ALGS,
         };
     }

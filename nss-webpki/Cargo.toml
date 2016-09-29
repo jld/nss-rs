@@ -1,6 +1,6 @@
 [package]
 name = "nss-webpki"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["Jed Davis <jld@mozilla.com>"]
 
 [dependencies]
@@ -8,3 +8,4 @@ nss = { version = "*", path = ".." }
 time = "0.1.35"
 untrusted = "0.3.1"
 webpki = "0.3.0"
+mozilla-ca-certs = { version = "0.1", path = "../../mozilla-ca-certs" }
