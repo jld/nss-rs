@@ -7,7 +7,7 @@ pub mod nspr;
 pub mod cert;
 
 use libc::{c_char, c_uchar, c_uint, c_ulong, c_void};
-use nspr::{PRFileDesc, PRBool, PRInt32};
+use nspr::{PRFileDesc, PRBool, PRInt32, PRUint16};
 
 pub use cert::{CERTCertificate, CERTCertList, CERTCertListNode,
                CERT_DestroyCertificate, CERT_DestroyCertList,
@@ -46,6 +46,7 @@ pub enum SECItemType {
 pub type SECItem = SECItemStr;
 pub type SECAlgorithmID = SECAlgorithmIDStr;
 pub type PK11SlotInfo = PK11SlotInfoStr;
+pub type SSLVersionRange = SSLVersionRangeStr;
 
 pub type CK_OBJECT_HANDLE = CK_ULONG;
 pub type CK_ULONG = c_ulong;
@@ -110,6 +111,28 @@ pub const SSL_ENABLE_SIGNED_CERT_TIMESTAMPS: PRInt32 = 31;
 pub const SSL_REQUIRE_DH_NAMED_GROUPS: PRInt32 = 32;
 pub const SSL_ENABLE_0RTT_DATA: PRInt32 = 33;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(C)]
+pub enum SSLProtocolVariant {
+    ssl_variant_stream = 0,
+    ssl_variant_datagram = 1,
+}
+pub use self::SSLProtocolVariant::*;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(C)]
+pub struct SSLVersionRangeStr {
+    pub min: PRUint16,
+    pub max: PRUint16,
+}
+
+pub const SSL_LIBRARY_VERSION_2: PRUint16 = 0x0002;
+pub const SSL_LIBRARY_VERSION_3_0: PRUint16 = 0x0300;
+pub const SSL_LIBRARY_VERSION_TLS_1_0: PRUint16 = 0x0301;
+pub const SSL_LIBRARY_VERSION_TLS_1_1: PRUint16 = 0x0302;
+pub const SSL_LIBRARY_VERSION_TLS_1_2: PRUint16 = 0x0303;
+pub const SSL_LIBRARY_VERSION_TLS_1_3: PRUint16 = 0x0304;
+
 extern "C" {
     pub fn NSS_NoDB_Init(_configdir: *const c_char) -> SECStatus;
     pub fn NSS_SetDomesticPolicy() -> SECStatus;
@@ -125,8 +148,15 @@ extern "C" {
     pub fn SSL_OptionGet(fd: *mut PRFileDesc, option: PRInt32, on: *mut PRBool) -> SECStatus;
     pub fn SSL_OptionSetDefault(option: PRInt32, on: PRBool) -> SECStatus;
     pub fn SSL_OptionGetDefault(option: PRInt32, on: *mut PRBool) -> SECStatus;
+    pub fn SSL_VersionRangeSet(fd: *mut PRFileDesc, vrange: *const SSLVersionRange) -> SECStatus;
+    pub fn SSL_VersionRangeGet(fd: *mut PRFileDesc, vrange: *mut SSLVersionRange) -> SECStatus;
+    pub fn SSL_VersionRangeSetDefault(protocolVariant: SSLProtocolVariant,
+                                      vrange: *const SSLVersionRange) -> SECStatus;
+    pub fn SSL_VersionRangeGetDefault(protocolVariant: SSLProtocolVariant,
+                                      vrange: *mut SSLVersionRange) -> SECStatus;
+    pub fn SSL_VersionRangeGetSupported(protocolVariant: SSLProtocolVariant,
+                                        vrange: *mut SSLVersionRange) -> SECStatus;
 }
-
 
 #[cfg(test)]
 mod tests {

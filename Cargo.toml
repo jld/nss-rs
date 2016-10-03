@@ -1,9 +1,9 @@
 [package]
 name = "nss"
-version = "0.6.2"
+version = "0.6.3"
 authors = ["Jed Davis <jld@mozilla.com>"]
 
 [dependencies]
-nss-sys = { version = "0.1.4", path = "nss-sys" }
+nss-sys = { version = "0.1.5", path = "nss-sys" }
 lazy_static = "0.2.1"
 libc = "0.2"

@@ -5,6 +5,6 @@ authors = ["Jed Davis <jld@mozilla.com>"]
 
 [dependencies]
 hyper = "0.9.10"
-nss = { version = "*", path = ".." }
+nss = { version = "0.6.3", path = ".." }
 nss-webpki = { version = "0.2", path = "../nss-webpki" }
 time = "0.1.35"

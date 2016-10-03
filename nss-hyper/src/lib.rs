@@ -4,7 +4,8 @@ extern crate nss_webpki;
 extern crate time;
 
 use hyper::net::{NetworkStream, SslClient};
-use nss::{File, FileMethods, FileWrapper, TLSSocket, BorrowedTLSSocket, AuthCertificateHook};
+use nss::{File, FileMethods, FileWrapper, TLSSocket, BorrowedTLSSocket, AuthCertificateHook,
+          TLS_VERSION_1_0};
 use nss::nspr::error::{PR_NOT_CONNECTED_ERROR,PR_UNKNOWN_ERROR};
 use nss::nspr::fd::PR_DESC_SOCKET_TCP;
 use nss_webpki::{TrustConfig, MOZILLA_ANCHORS, ALL_SIG_ALGS};
@@ -50,6 +51,8 @@ impl<N: NetworkStream + Clone> SslClient<N> for NssClient<N> {
         nss_try!(outer.use_auth_certificate_hook());
         // This "connect" just fixes NSS's state; handshake isn't send until first write.
         nss_try!(outer.connect(peer_addr, None));
+        // Modernize the security setup -- should this be a callback for the application?
+        nss_try!(outer.limit_version(Some(TLS_VERSION_1_0), None));
         Ok(FileToStream::new(outer))
     }
 }

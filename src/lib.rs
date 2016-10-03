@@ -8,6 +8,7 @@ pub mod cert;
 use libc::c_void;
 use nss_sys as ffi;
 use std::borrow::Borrow;
+use std::cmp;
 use std::ffi::CStr;
 use std::mem;
 use std::ops::{Deref,DerefMut};
@@ -168,7 +169,7 @@ impl<Callbacks> TLSSocketImpl<Callbacks> {
 
     pub fn set_option(&self, option: TLSOption, value: bool) -> Result<()> {
         result_secstatus(unsafe {
-            ffi::SSL_OptionSet(self.as_raw_prfd(), option.get(), bool_to_nspr(value))
+            ffi::SSL_OptionSet(self.as_raw_prfd(), option.to_ffi(), bool_to_nspr(value))
         })
     }
 
@@ -176,9 +177,34 @@ impl<Callbacks> TLSSocketImpl<Callbacks> {
         // Poison this with a bad value; bool_from_nspr will panic if it's still there.
         let mut value: ffi::nspr::PRBool = 0x5a;
         try!(result_secstatus(unsafe {
-            ffi::SSL_OptionGet(self.as_raw_prfd(), option.get(), &mut value as *mut _)
+            ffi::SSL_OptionGet(self.as_raw_prfd(), option.to_ffi(), &mut value as *mut _)
         }));
         Ok(bool_from_nspr(value))
+    }
+
+    pub fn set_version_range(&self, min: TLSVersion, max: TLSVersion) -> Result<()> {
+        let range = ffi::SSLVersionRange {
+            min: min.to_ffi(),
+            max: max.to_ffi(),
+        };
+        result_secstatus(unsafe {
+            ffi::SSL_VersionRangeSet(self.as_raw_prfd(), &range as *const _)
+        })
+    }
+
+
+    pub fn get_version_range(&self) -> Result<(TLSVersion, TLSVersion)> {
+        let mut range = ffi::SSLVersionRange { min: 0xffff, max: 0 };
+        try!(result_secstatus(unsafe {
+            ffi::SSL_VersionRangeSet(self.as_raw_prfd(), &mut range as *mut _)
+        }));
+        Ok((TLSVersion(range.min), TLSVersion(range.max)))
+    }
+
+    pub fn limit_version(&self, min: Option<TLSVersion>, max: Option<TLSVersion>) -> Result<()> {
+        let (abs_min, abs_max) = try!(TLSVersion::supported_range());
+        self.set_version_range(min.map_or(abs_min, |min| cmp::max(min, abs_min)),
+                               max.map_or(abs_max, |max| cmp::min(max, abs_max)))
     }
 }
 
@@ -209,14 +235,13 @@ unsafe extern "C" fn raw_auth_certificate_hook<Callbacks>(arg: *mut c_void,
 pub struct TLSOption(ffi::nspr::PRInt32);
 
 impl TLSOption {
-    fn get(self) -> ffi::nspr::PRInt32 { self.0 }
+    pub fn to_ffi(self) -> ffi::nspr::PRInt32 { self.0 }
 }
 
-macro_rules! def_options {
-    { $($name:ident,)* } => {
-        $(pub const $name: TLSOption = TLSOption(ffi::$name);)*
-    }
-}
+macro_rules! def_options {{ $($name:ident,)* } => {
+    $(pub const $name: TLSOption = TLSOption(ffi::$name);)*
+}}
+
 def_options! {
     SSL_SECURITY,
     SSL_SOCKS,
@@ -251,6 +276,27 @@ def_options! {
     SSL_REQUIRE_DH_NAMED_GROUPS,
     SSL_ENABLE_0RTT_DATA,
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct TLSVersion(ffi::nspr::PRUint16);
+
+impl TLSVersion {
+    pub fn to_ffi(self) -> ffi::nspr::PRUint16 { self.0 }
+    pub fn supported_range() -> Result<(Self, Self)> {
+        let mut range = ffi::SSLVersionRange { min: 0xffff, max: 0 };
+        try!(result_secstatus(unsafe {
+            ffi::SSL_VersionRangeGetSupported(ffi::ssl_variant_stream, &mut range as *mut _)
+        }));
+        Ok((TLSVersion(range.min), TLSVersion(range.max)))
+    }
+}
+
+pub const SSL_VERSION_2: TLSVersion = TLSVersion(ffi::SSL_LIBRARY_VERSION_2);
+pub const SSL_VERSION_3: TLSVersion = TLSVersion(ffi::SSL_LIBRARY_VERSION_3_0);
+pub const TLS_VERSION_1_0: TLSVersion = TLSVersion(ffi::SSL_LIBRARY_VERSION_TLS_1_0);
+pub const TLS_VERSION_1_1: TLSVersion = TLSVersion(ffi::SSL_LIBRARY_VERSION_TLS_1_1);
+pub const TLS_VERSION_1_2: TLSVersion = TLSVersion(ffi::SSL_LIBRARY_VERSION_TLS_1_2);
+pub const TLS_VERSION_1_3: TLSVersion = TLSVersion(ffi::SSL_LIBRARY_VERSION_TLS_1_3);
 
 #[cfg(test)]
 mod tests {
