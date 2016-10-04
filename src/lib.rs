@@ -31,6 +31,13 @@ fn result_secstatus(status: ffi::SECStatus) -> Result<()> {
     }
 }
 
+fn result_bool_getter<F: FnOnce(*mut ffi::nspr::PRBool) -> ffi::SECStatus>(f: F) -> Result<bool> {
+    // Poison this with a bad value; bool_from_nspr will panic if it's still there.
+    let mut value: ffi::nspr::PRBool = 0x5a;
+    try!(result_secstatus(f(&mut value as *mut _)));
+    Ok(bool_from_nspr(value))
+}
+
 // TODO: What do I do about this init/shutdown stuff vs. lifetimes/safety?
 
 pub fn init() -> Result<()> {
@@ -174,12 +181,9 @@ impl<Callbacks> TLSSocketImpl<Callbacks> {
     }
 
     pub fn get_option(&self, option: TLSOption) -> Result<bool> {
-        // Poison this with a bad value; bool_from_nspr will panic if it's still there.
-        let mut value: ffi::nspr::PRBool = 0x5a;
-        try!(result_secstatus(unsafe {
-            ffi::SSL_OptionGet(self.as_raw_prfd(), option.to_ffi(), &mut value as *mut _)
-        }));
-        Ok(bool_from_nspr(value))
+        result_bool_getter(|bptr| unsafe {
+            ffi::SSL_OptionGet(self.as_raw_prfd(), option.to_ffi(), bptr)
+        })
     }
 
     pub fn set_version_range(&self, min: TLSVersion, max: TLSVersion) -> Result<()> {
@@ -205,6 +209,18 @@ impl<Callbacks> TLSSocketImpl<Callbacks> {
         let (abs_min, abs_max) = try!(TLSVersion::supported_range());
         self.set_version_range(min.map_or(abs_min, |min| cmp::max(min, abs_min)),
                                max.map_or(abs_max, |max| cmp::min(max, abs_max)))
+    }
+
+    pub fn set_ciphersuite_enabled(&self, suite: TLSCipherSuite, enabled: bool) -> Result<()> {
+        result_secstatus(unsafe {
+            ffi::SSL_CipherPrefSet(self.as_raw_prfd(), suite.to_ffi(), bool_to_nspr(enabled))
+        })
+    }
+
+    pub fn is_ciphersuite_enabled(&self, suite: TLSCipherSuite) -> Result<bool> {
+        result_bool_getter(|bptr| unsafe {
+            ffi::SSL_CipherPrefGet(self.as_raw_prfd(), suite.to_ffi(), bptr)
+        })
     }
 }
 
@@ -297,6 +313,113 @@ pub const TLS_VERSION_1_0: TLSVersion = TLSVersion(ffi::SSL_LIBRARY_VERSION_TLS_
 pub const TLS_VERSION_1_1: TLSVersion = TLSVersion(ffi::SSL_LIBRARY_VERSION_TLS_1_1);
 pub const TLS_VERSION_1_2: TLSVersion = TLSVersion(ffi::SSL_LIBRARY_VERSION_TLS_1_2);
 pub const TLS_VERSION_1_3: TLSVersion = TLSVersion(ffi::SSL_LIBRARY_VERSION_TLS_1_3);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TLSCipherSuite(ffi::nspr::PRUint16);
+
+impl TLSCipherSuite {
+    // No, I don't know why the functions take what's really a u16 as an i32.
+    pub fn to_ffi(self) -> ffi::nspr::PRInt32 { self.0 as ffi::nspr::PRInt32 }
+    pub fn implemented() -> &'static [Self] {
+        unsafe {
+            slice::from_raw_parts(ffi::SSL_GetImplementedCiphers() as *const Self,
+                                  ffi::SSL_GetNumImplementedCiphers() as usize)
+        }
+    }
+    pub fn is_default_enabled(&self) -> Result<bool> {
+        result_bool_getter(|bptr| unsafe {
+            ffi::SSL_CipherPrefGetDefault(self.to_ffi(), bptr)
+        })
+    }
+}
+
+macro_rules! def_ciphers {{ $($name:ident,)* } => {
+    $(pub const $name: TLSCipherSuite = TLSCipherSuite(ffi::$name);)*
+}}
+
+// Just wrap the ciphersuites that are currently actually implemented
+// by NSS, not everything defined in nss-sys.  The actual library, if
+// it's an older version, might implement some others, but they almost
+// certainly aren't safe to use.
+def_ciphers! {
+    TLS_AES_128_GCM_SHA256,
+    TLS_CHACHA20_POLY1305_SHA256,
+    TLS_AES_256_GCM_SHA384,
+
+    TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+    TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+    TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256,
+    TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
+    TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
+    TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+    TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA,
+    TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA,
+    TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA,
+    TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256,
+    TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256,
+    TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA,
+    TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA384,
+    TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA384,
+    TLS_ECDHE_ECDSA_WITH_3DES_EDE_CBC_SHA,
+    TLS_ECDHE_RSA_WITH_3DES_EDE_CBC_SHA,
+    TLS_ECDHE_ECDSA_WITH_RC4_128_SHA,
+    TLS_ECDHE_RSA_WITH_RC4_128_SHA,
+
+    TLS_DHE_RSA_WITH_AES_128_GCM_SHA256,
+    TLS_DHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
+    TLS_DHE_DSS_WITH_AES_128_GCM_SHA256,
+    TLS_DHE_RSA_WITH_AES_256_GCM_SHA384,
+    TLS_DHE_DSS_WITH_AES_256_GCM_SHA384,
+    TLS_DHE_RSA_WITH_AES_128_CBC_SHA,
+    TLS_DHE_DSS_WITH_AES_128_CBC_SHA,
+    TLS_DHE_RSA_WITH_AES_128_CBC_SHA256,
+    TLS_DHE_DSS_WITH_AES_128_CBC_SHA256,
+    TLS_DHE_RSA_WITH_CAMELLIA_128_CBC_SHA,
+    TLS_DHE_DSS_WITH_CAMELLIA_128_CBC_SHA,
+    TLS_DHE_RSA_WITH_AES_256_CBC_SHA,
+    TLS_DHE_DSS_WITH_AES_256_CBC_SHA,
+    TLS_DHE_RSA_WITH_AES_256_CBC_SHA256,
+    TLS_DHE_DSS_WITH_AES_256_CBC_SHA256,
+    TLS_DHE_RSA_WITH_CAMELLIA_256_CBC_SHA,
+    TLS_DHE_DSS_WITH_CAMELLIA_256_CBC_SHA,
+    TLS_DHE_RSA_WITH_3DES_EDE_CBC_SHA,
+    TLS_DHE_DSS_WITH_3DES_EDE_CBC_SHA,
+    TLS_DHE_DSS_WITH_RC4_128_SHA,
+
+    TLS_ECDH_ECDSA_WITH_AES_128_CBC_SHA,
+    TLS_ECDH_RSA_WITH_AES_128_CBC_SHA,
+    TLS_ECDH_ECDSA_WITH_AES_256_CBC_SHA,
+    TLS_ECDH_RSA_WITH_AES_256_CBC_SHA,
+    TLS_ECDH_ECDSA_WITH_3DES_EDE_CBC_SHA,
+    TLS_ECDH_RSA_WITH_3DES_EDE_CBC_SHA,
+    TLS_ECDH_ECDSA_WITH_RC4_128_SHA,
+    TLS_ECDH_RSA_WITH_RC4_128_SHA,
+
+    TLS_RSA_WITH_AES_128_GCM_SHA256,
+    TLS_RSA_WITH_AES_256_GCM_SHA384,
+    TLS_RSA_WITH_AES_128_CBC_SHA,
+    TLS_RSA_WITH_AES_128_CBC_SHA256,
+    TLS_RSA_WITH_CAMELLIA_128_CBC_SHA,
+    TLS_RSA_WITH_AES_256_CBC_SHA,
+    TLS_RSA_WITH_AES_256_CBC_SHA256,
+    TLS_RSA_WITH_CAMELLIA_256_CBC_SHA,
+    TLS_RSA_WITH_SEED_CBC_SHA,
+    TLS_RSA_WITH_3DES_EDE_CBC_SHA,
+    TLS_RSA_WITH_RC4_128_SHA,
+    TLS_RSA_WITH_RC4_128_MD5,
+
+    TLS_DHE_RSA_WITH_DES_CBC_SHA,
+    TLS_DHE_DSS_WITH_DES_CBC_SHA,
+    TLS_RSA_WITH_DES_CBC_SHA,
+
+    TLS_ECDHE_ECDSA_WITH_NULL_SHA,
+    TLS_ECDHE_RSA_WITH_NULL_SHA,
+    TLS_ECDH_RSA_WITH_NULL_SHA,
+    TLS_ECDH_ECDSA_WITH_NULL_SHA,
+    TLS_RSA_WITH_NULL_SHA,
+    TLS_RSA_WITH_NULL_SHA256,
+    TLS_RSA_WITH_NULL_MD5,
+}
 
 #[cfg(test)]
 mod tests {
