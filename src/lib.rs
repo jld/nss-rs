@@ -2,8 +2,9 @@
 extern crate lazy_static;
 extern crate libc;
 extern crate nss_sys;
-pub mod nspr;
 pub mod cert;
+pub mod error;
+pub mod nspr;
 
 use libc::c_void;
 use nss_sys as ffi;
@@ -15,11 +16,15 @@ use std::ops::{Deref,DerefMut};
 use std::ptr;
 use std::slice;
 
-pub use nspr::error::{Error, Result, failed, PR_WOULD_BLOCK_ERROR};
+pub use error::{Error, Result, failed};
 pub use nspr::fd::{File, FileMethods, FileWrapper};
 pub use cert::{Certificate, CertList};
 use nspr::fd::{RawFile, BorrowedFile};
 use nspr::{bool_from_nspr, bool_to_nspr};
+use error::PR_WOULD_BLOCK_ERROR;
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct ErrorCode(ffi::nspr::PRErrorCode);
 
 fn result_secstatus(status: ffi::SECStatus) -> Result<()> {
     // Must call this immediately after the NSS operation so that the
@@ -424,7 +429,7 @@ def_ciphers! {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nspr::error::{PR_NOT_CONNECTED_ERROR, PR_IS_CONNECTED_ERROR, PR_END_OF_FILE_ERROR};
+    use error::{PR_NOT_CONNECTED_ERROR, PR_IS_CONNECTED_ERROR, PR_END_OF_FILE_ERROR};
     use std::net::{SocketAddr,SocketAddrV4,Ipv4Addr};
     use std::sync::{Arc, Mutex};
     use std::sync::atomic::{AtomicBool, Ordering};

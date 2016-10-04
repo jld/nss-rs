@@ -3,8 +3,9 @@
 #![allow(non_snake_case)]
 
 extern crate libc;
-pub mod nspr;
 pub mod cert;
+pub mod error;
+pub mod nspr;
 
 use libc::{c_char, c_uchar, c_uint, c_ulong, c_void};
 use nspr::{PRFileDesc, PRBool, PRInt32, PRUint16};

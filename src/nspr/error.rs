@@ -6,8 +6,7 @@ use std::fmt;
 use std::io;
 use std::result;
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub struct ErrorCode(ffi::PRErrorCode);
+pub use ErrorCode;
 
 unsafe fn to_cstr_opt<'a>(ptr: *const c_char) -> Option<&'a CStr> {
     if ptr.is_null() {
