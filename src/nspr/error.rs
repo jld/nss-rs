@@ -1,5 +1,7 @@
+use libc::c_char;
 use nss_sys::nspr as ffi;
 use std::error;
+use std::ffi::CStr;
 use std::fmt;
 use std::io;
 use std::result;
@@ -7,39 +9,57 @@ use std::result;
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub struct ErrorCode(ffi::PRErrorCode);
 
+unsafe fn to_cstr_opt<'a>(ptr: *const c_char) -> Option<&'a CStr> {
+    if ptr.is_null() {
+        None
+    } else {
+        Some(CStr::from_ptr(ptr))
+    }
+}
+
 impl ErrorCode {
     pub fn last() -> Self {
         ErrorCode(unsafe { ffi::PR_GetError() })
     }
+    pub fn to_name(self) -> Option<&'static CStr> {
+        unsafe {
+            to_cstr_opt(ffi::PR_ErrorToName(self.0))
+        }
+    }
+    pub fn to_descr(self) -> Option<&'static CStr> {
+        unsafe {
+            to_cstr_opt(ffi::PR_ErrorToString(self.0, ffi::PR_LANGUAGE_I_DEFAULT))
+        }
+    }
 }
 
-macro_rules! nspr_errors {
-    { $($name:ident = $desc:expr),* } => {
-        $(pub const $name: ErrorCode = ErrorCode(ffi::$name);)*
-        impl fmt::Debug for ErrorCode {
-            fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-                match self.0 {
-                    $(ffi::$name => f.write_str(stringify!($name))),*,
-                    other => write!(f, "ErrorCode({})", other),
-                }
-            }
+macro_rules! nspr_errors {{ $($name:ident,)* } => {
+    $(pub const $name: ErrorCode = ErrorCode(ffi::$name);)*
+}}
+
+impl fmt::Debug for ErrorCode {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self.to_name() {
+            Some(cs) => write!(f, "{}", cs.to_str().unwrap()),
+            None => write!(f, "ErrorCode({})", self.0),
         }
-        impl fmt::Display for ErrorCode {
-            fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-                fmt::Debug::fmt(self, f)
-            }
+    }
+}
+impl fmt::Display for ErrorCode {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        // FIXME: should this use the ToString value instead / as well?
+        fmt::Debug::fmt(self, f)
+    }
+}
+impl error::Error for ErrorCode {
+    fn description(&self) -> &str {
+        match self.to_descr() {
+            Some(cs) => cs.to_str().unwrap(),
+            None => "Unknown error"
         }
-        impl error::Error for ErrorCode {
-            fn description(&self) -> &str {
-                match self.0 {
-                    $(ffi::$name => $desc),*,
-                    _ => "Unknown error"
-                }
-            }
-            fn cause(&self) -> Option<&error::Error> {
-                None
-            }
-        }
+    }
+    fn cause(&self) -> Option<&error::Error> {
+        None
     }
 }
 
@@ -114,87 +134,82 @@ pub type Result<T> = result::Result<T, Error>;
 pub fn failed<T>() -> Result<T> { Err(Error::last()) }
 
 nspr_errors! {
-    PR_OUT_OF_MEMORY_ERROR =      "Memory allocation attempt failed",
-    PR_BAD_DESCRIPTOR_ERROR =     "Invalid file descriptor",
-    PR_WOULD_BLOCK_ERROR =        "The operation would have blocked",
-    PR_ACCESS_FAULT_ERROR =       "Invalid memory address argument",
-    PR_INVALID_METHOD_ERROR =     "Invalid function for file type",
-    PR_ILLEGAL_ACCESS_ERROR =     "Invalid memory address argument",
-    PR_UNKNOWN_ERROR =            "Some unknown error has occurred",
-    PR_PENDING_INTERRUPT_ERROR =  "Operation interrupted by another thread",
-    PR_NOT_IMPLEMENTED_ERROR =    "function not implemented",
-    PR_IO_ERROR =                 "I/O function error",
-    PR_IO_TIMEOUT_ERROR =         "I/O operation timed out",
-    PR_IO_PENDING_ERROR =         "I/O operation on busy file descriptor",
-    PR_DIRECTORY_OPEN_ERROR =     "The directory could not be opened",
-    PR_INVALID_ARGUMENT_ERROR =   "Invalid function argument",
-    PR_ADDRESS_NOT_AVAILABLE_ERROR = "Network address not available (in use?)",
-    PR_ADDRESS_NOT_SUPPORTED_ERROR = "Network address type not supported",
-    PR_IS_CONNECTED_ERROR =       "Already connected",
-    PR_BAD_ADDRESS_ERROR =        "Network address is invalid",
-    PR_ADDRESS_IN_USE_ERROR =     "Local Network address is in use",
-    PR_CONNECT_REFUSED_ERROR =    "Connection refused by peer",
-    PR_NETWORK_UNREACHABLE_ERROR = "Network address is presently unreachable",
-    PR_CONNECT_TIMEOUT_ERROR =    "Connection attempt timed out",
-    PR_NOT_CONNECTED_ERROR =      "Network file descriptor is not connected",
-    PR_LOAD_LIBRARY_ERROR =       "Failure to load dynamic library",
-    PR_UNLOAD_LIBRARY_ERROR =     "Failure to unload dynamic library",
-    PR_FIND_SYMBOL_ERROR =        "Symbol not found in any of the loaded dynamic libraries",
-    PR_INSUFFICIENT_RESOURCES_ERROR = "Insufficient system resources",
-    PR_DIRECTORY_LOOKUP_ERROR =   "A directory lookup on a network address has failed",
-    PR_TPD_RANGE_ERROR =          "Attempt to access a TPD key that is out of range",
-    PR_PROC_DESC_TABLE_FULL_ERROR = "Process open FD table is full",
-    PR_SYS_DESC_TABLE_FULL_ERROR = "System open FD table is full",
-    PR_NOT_SOCKET_ERROR =         "Network operation attempted on non-network file descriptor",
-    PR_NOT_TCP_SOCKET_ERROR =     "TCP-specific function attempted on a non-TCP file descriptor",
-    PR_SOCKET_ADDRESS_IS_BOUND_ERROR = "TCP file descriptor is already bound",
-    PR_NO_ACCESS_RIGHTS_ERROR =   "Access Denied",
-    PR_OPERATION_NOT_SUPPORTED_ERROR = "The requested operation is not supported by the platform",
-    PR_PROTOCOL_NOT_SUPPORTED_ERROR =
-        "The host operating system does not support the protocol requested",
-    PR_REMOTE_FILE_ERROR =        "Access to the remote file has been severed",
-    PR_BUFFER_OVERFLOW_ERROR =
-        "The value requested is too large to be stored in the data buffer provided",
-    PR_CONNECT_RESET_ERROR =      "TCP connection reset by peer",
-    PR_RANGE_ERROR =              "Unused (range error)",
-    PR_DEADLOCK_ERROR =   "The operation would have deadlocked",
-    PR_FILE_IS_LOCKED_ERROR =     "The file is already locked",
-    PR_FILE_TOO_BIG_ERROR =       "Write would result in file larger than the system allows",
-    PR_NO_DEVICE_SPACE_ERROR =    "The device for storing the file is full",
-    PR_PIPE_ERROR =               "Unused (pipe error)",
-    PR_NO_SEEK_DEVICE_ERROR =     "Unused (device seek error)",
-    PR_IS_DIRECTORY_ERROR =       "Cannot perform a normal file operation on a directory",
-    PR_LOOP_ERROR =               "Symbolic link loop",
-    PR_NAME_TOO_LONG_ERROR =      "File name is too long",
-    PR_FILE_NOT_FOUND_ERROR =     "File not found",
-    PR_NOT_DIRECTORY_ERROR =      "Cannot perform directory operation on a normal file",
-    PR_READ_ONLY_FILESYSTEM_ERROR = "Cannot write to a read-only file system",
-    PR_DIRECTORY_NOT_EMPTY_ERROR = "Cannot delete a directory that is not empty",
-    PR_FILESYSTEM_MOUNTED_ERROR =
-        "Cannot delete or rename a file object while the file system is busy",
-    PR_NOT_SAME_DEVICE_ERROR = "Cannot rename a file to a file system on another device",
-    PR_DIRECTORY_CORRUPTED_ERROR = "The directory object in the file system is corrupted",
-    PR_FILE_EXISTS_ERROR =        "Cannot create or rename a filename that already exists",
-    PR_MAX_DIRECTORY_ENTRIES_ERROR = "Directory is full.  No additional filenames may be added",
-    PR_INVALID_DEVICE_STATE_ERROR = "The required device was in an invalid state",
-    PR_DEVICE_IS_LOCKED_ERROR =   "The device is locked",
-    PR_NO_MORE_FILES_ERROR =      "No more entries in the directory",
-    PR_END_OF_FILE_ERROR =        "Encountered end of file",
-    PR_FILE_SEEK_ERROR =          "Seek error",
-    PR_FILE_IS_BUSY_ERROR =       "The file is busy",
-    PR_OPERATION_ABORTED_ERROR =  "The I/O operation was aborted",
-    PR_IN_PROGRESS_ERROR =
-        "Operation is still in progress (probably a non-blocking connect)",
-    PR_ALREADY_INITIATED_ERROR =
-        "Operation has already been initiated (probably a non-blocking connect)",
-    PR_GROUP_EMPTY_ERROR =        "The wait group is empty",
-    PR_INVALID_STATE_ERROR =      "Object state improper for request",
-    PR_NETWORK_DOWN_ERROR =       "Network is down",
-    PR_SOCKET_SHUTDOWN_ERROR =    "Socket shutdown",
-    PR_CONNECT_ABORTED_ERROR =    "Connection aborted",
-    PR_HOST_UNREACHABLE_ERROR =   "Host is unreachable",
-    PR_LIBRARY_NOT_LOADED_ERROR = "The library is not loaded",
-    PR_CALL_ONCE_ERROR = "The one-time function was previously called and failed. Its error code is no longer available"
+    PR_OUT_OF_MEMORY_ERROR,
+    PR_BAD_DESCRIPTOR_ERROR,
+    PR_WOULD_BLOCK_ERROR,
+    PR_ACCESS_FAULT_ERROR,
+    PR_INVALID_METHOD_ERROR,
+    PR_ILLEGAL_ACCESS_ERROR,
+    PR_UNKNOWN_ERROR,
+    PR_PENDING_INTERRUPT_ERROR,
+    PR_NOT_IMPLEMENTED_ERROR,
+    PR_IO_ERROR,
+    PR_IO_TIMEOUT_ERROR,
+    PR_IO_PENDING_ERROR,
+    PR_DIRECTORY_OPEN_ERROR,
+    PR_INVALID_ARGUMENT_ERROR,
+    PR_ADDRESS_NOT_AVAILABLE_ERROR,
+    PR_ADDRESS_NOT_SUPPORTED_ERROR,
+    PR_IS_CONNECTED_ERROR,
+    PR_BAD_ADDRESS_ERROR,
+    PR_ADDRESS_IN_USE_ERROR,
+    PR_CONNECT_REFUSED_ERROR,
+    PR_NETWORK_UNREACHABLE_ERROR,
+    PR_CONNECT_TIMEOUT_ERROR,
+    PR_NOT_CONNECTED_ERROR,
+    PR_LOAD_LIBRARY_ERROR,
+    PR_UNLOAD_LIBRARY_ERROR,
+    PR_FIND_SYMBOL_ERROR,
+    PR_INSUFFICIENT_RESOURCES_ERROR,
+    PR_DIRECTORY_LOOKUP_ERROR,
+    PR_TPD_RANGE_ERROR,
+    PR_PROC_DESC_TABLE_FULL_ERROR,
+    PR_SYS_DESC_TABLE_FULL_ERROR,
+    PR_NOT_SOCKET_ERROR,
+    PR_NOT_TCP_SOCKET_ERROR,
+    PR_SOCKET_ADDRESS_IS_BOUND_ERROR,
+    PR_NO_ACCESS_RIGHTS_ERROR,
+    PR_OPERATION_NOT_SUPPORTED_ERROR,
+    PR_PROTOCOL_NOT_SUPPORTED_ERROR,
+    PR_REMOTE_FILE_ERROR,
+    PR_BUFFER_OVERFLOW_ERROR,
+    PR_CONNECT_RESET_ERROR,
+    PR_RANGE_ERROR,
+    PR_DEADLOCK_ERROR,
+    PR_FILE_IS_LOCKED_ERROR,
+    PR_FILE_TOO_BIG_ERROR,
+    PR_NO_DEVICE_SPACE_ERROR,
+    PR_PIPE_ERROR,
+    PR_NO_SEEK_DEVICE_ERROR,
+    PR_IS_DIRECTORY_ERROR,
+    PR_LOOP_ERROR,
+    PR_NAME_TOO_LONG_ERROR,
+    PR_FILE_NOT_FOUND_ERROR,
+    PR_NOT_DIRECTORY_ERROR,
+    PR_READ_ONLY_FILESYSTEM_ERROR,
+    PR_DIRECTORY_NOT_EMPTY_ERROR,
+    PR_FILESYSTEM_MOUNTED_ERROR,
+    PR_NOT_SAME_DEVICE_ERROR,
+    PR_DIRECTORY_CORRUPTED_ERROR,
+    PR_FILE_EXISTS_ERROR,
+    PR_MAX_DIRECTORY_ENTRIES_ERROR,
+    PR_INVALID_DEVICE_STATE_ERROR,
+    PR_DEVICE_IS_LOCKED_ERROR,
+    PR_NO_MORE_FILES_ERROR,
+    PR_END_OF_FILE_ERROR,
+    PR_FILE_SEEK_ERROR,
+    PR_FILE_IS_BUSY_ERROR,
+    PR_OPERATION_ABORTED_ERROR,
+    PR_IN_PROGRESS_ERROR,
+    PR_ALREADY_INITIATED_ERROR,
+    PR_GROUP_EMPTY_ERROR,
+    PR_INVALID_STATE_ERROR,
+    PR_NETWORK_DOWN_ERROR,
+    PR_SOCKET_SHUTDOWN_ERROR,
+    PR_CONNECT_ABORTED_ERROR,
+    PR_HOST_UNREACHABLE_ERROR,
+    PR_LIBRARY_NOT_LOADED_ERROR,
+    PR_CALL_ONCE_ERROR,
 }
 
 error_kinds! {
