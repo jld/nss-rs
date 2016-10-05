@@ -6,7 +6,7 @@ extern crate time;
 use hyper::net::{NetworkStream, SslClient};
 use nss::{File, FileMethods, FileWrapper, TLSSocket, BorrowedTLSSocket, AuthCertificateHook,
           TLS_VERSION_1_0};
-use nss::nspr::error::{PR_NOT_CONNECTED_ERROR,PR_UNKNOWN_ERROR};
+use nss::nspr::error::{PR_NOT_CONNECTED_ERROR};
 use nss::nspr::fd::PR_DESC_SOCKET_TCP;
 use nss_webpki::{TrustConfig, MOZILLA_ANCHORS, ALL_SIG_ALGS};
 use time::get_time;
@@ -71,10 +71,7 @@ impl AuthCertificateHook for NSSCallbacks {
             anchors: MOZILLA_ANCHORS,
             sig_algs: ALL_SIG_ALGS,
         };
-        tcfg.verify(&chain, self.host_name.as_bytes(), get_time()).map_err(|e| {
-            println!("WebPKI error for {:?}: {:?}", self.host_name, e);
-            PR_UNKNOWN_ERROR.into()
-        })
+        tcfg.verify(&chain, self.host_name.as_bytes(), get_time())
     }
 }
 

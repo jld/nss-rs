@@ -4,10 +4,11 @@ extern crate time;
 extern crate untrusted;
 extern crate webpki;
 
-use nss::CertList;
+use nss::{CertList,Result,error};
 use time::Timespec;
 use untrusted::Input;
-use webpki::{Error, TrustAnchor, EndEntityCert, SignatureAlgorithm};
+use webpki::Error as WebPKIError;
+use webpki::{TrustAnchor, EndEntityCert, SignatureAlgorithm};
 
 pub struct TrustConfig<'a> {
     pub anchors: &'a [TrustAnchor<'a>],
@@ -15,16 +16,48 @@ pub struct TrustConfig<'a> {
     // TODO: collection of additional (dis)trust info
 }
 
+fn err_map(wpe: WebPKIError) -> error::ErrorCode {
+    match wpe {
+        WebPKIError::BadDER => error::SEC_ERROR_BAD_DER,
+        WebPKIError::BadDERTime => error::SEC_ERROR_INVALID_TIME,
+        WebPKIError::CAUsedAsEndEntity => error::SEC_ERROR_CERT_USAGES_INVALID, // ???
+        WebPKIError::CertExpired => error::SEC_ERROR_EXPIRED_CERTIFICATE,
+        WebPKIError::CertNotValidForName => error::SSL_ERROR_BAD_CERT_DOMAIN, // ???
+        WebPKIError::CertNotValidYet => error::SEC_ERROR_EXPIRED_CERTIFICATE,
+        WebPKIError::EndEntityUsedAsCA => error::SEC_ERROR_CA_CERT_INVALID,
+        WebPKIError::ExtensionValueInvalid => error::SEC_ERROR_EXTENSION_VALUE_INVALID,
+        WebPKIError::InvalidCertValidity => error::SEC_ERROR_CERT_NOT_VALID, // ...
+        WebPKIError::InvalidReferenceName => error::SSL_ERROR_BAD_CERT_DOMAIN, // ???
+        WebPKIError::InvalidSignatureForPublicKey => error::SEC_ERROR_BAD_SIGNATURE,
+        WebPKIError::NameConstraintViolation => error::SEC_ERROR_CERT_NOT_IN_NAME_SPACE, // ???
+        WebPKIError::PathLenConstraintViolated => error::SEC_ERROR_PATH_LEN_CONSTRAINT_INVALID,
+        WebPKIError::SignatureAlgorithmMismatch => error::SEC_ERROR_BAD_SIGNATURE, // ???
+        WebPKIError::RequiredEKUNotFound => error::SEC_ERROR_INADEQUATE_KEY_USAGE, // ???
+        WebPKIError::UnknownIssuer => error::SEC_ERROR_UNKNOWN_ISSUER,
+        WebPKIError::UnsupportedCertVersion => error::SEC_ERROR_CERT_NOT_VALID, // ...
+        WebPKIError::UnsupportedCriticalExtension => error::SEC_ERROR_UNKNOWN_CRITICAL_EXTENSION,
+        WebPKIError::UnsupportedSignatureAlgorithmForPublicKey
+            => error::SEC_ERROR_INVALID_ALGORITHM, // ...
+        WebPKIError::UnsupportedSignatureAlgorithm
+            => error::SEC_ERROR_INVALID_ALGORITHM, // ...
+    }
+}
+
+macro_rules! webpki_try {
+    ($e:expr) => { try!($e.map_err(err_map)) }
+}
+
 impl<'a> TrustConfig<'a> {
-    pub fn verify(&self, certs: &CertList, dns_name: &[u8], time: Timespec) -> Result<(), Error> {
+    pub fn verify(&self, certs: &CertList, dns_name: &[u8], time: Timespec) -> Result<()> {
         let mut iter = certs.iter();
         // FIXME overloading BadDER is not quite right.
-        let ee_der = try!(iter.next().ok_or(Error::BadDER)).as_der();
-        let end_entity = try!(EndEntityCert::from(Input::from(ee_der)));
+        let ee_der = try!(iter.next().ok_or(error::SSL_ERROR_NO_CERTIFICATE)).as_der();
+        let end_entity = webpki_try!(EndEntityCert::from(Input::from(ee_der)));
         let intermediates: Vec<_> = iter.map(|cert| Input::from(cert.as_der())).collect();
-        try!(end_entity.verify_is_valid_tls_server_cert(self.sig_algs, self.anchors,
-                                                        &intermediates, time));
-        end_entity.verify_is_valid_for_dns_name(Input::from(dns_name))
+        webpki_try!(end_entity.verify_is_valid_tls_server_cert(self.sig_algs, self.anchors,
+                                                               &intermediates, time));
+        webpki_try!(end_entity.verify_is_valid_for_dns_name(Input::from(dns_name)));
+        Ok(())
     }
 }
 

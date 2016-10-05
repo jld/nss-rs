@@ -1,10 +1,10 @@
 [package]
 name = "nss-webpki"
-version = "0.2.0"
+version = "0.3.0"
 authors = ["Jed Davis <jld@mozilla.com>"]
 
 [dependencies]
-nss = { version = "*", path = ".." }
+nss = { version = "0.6.6", path = ".." }
 time = "0.1.35"
 untrusted = "0.3.1"
 webpki = "0.3.0"
