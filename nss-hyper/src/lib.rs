@@ -51,6 +51,9 @@ const MODERN_CRYPTO: &'static [TLSCipherSuite] = &[
     nss::TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA,
     nss::TLS_DHE_RSA_WITH_AES_128_CBC_SHA,
     nss::TLS_DHE_RSA_WITH_AES_256_CBC_SHA,
+    // These last 3 are deprecated (so not really "modern") -- non-DHE
+    // means no forward secrecy, and attacks on 3DES are starting to
+    // become practical.
     nss::TLS_RSA_WITH_AES_128_CBC_SHA,
     nss::TLS_RSA_WITH_AES_256_CBC_SHA,
     nss::TLS_RSA_WITH_3DES_EDE_CBC_SHA,
@@ -85,7 +88,11 @@ impl<N: NetworkStream + Clone> SslClient<N> for NssClient<N> {
         nss_try!(outer.use_auth_certificate_hook());
         // This "connect" just fixes NSS's state; handshake isn't sent until first write.
         nss_try!(outer.connect(peer_addr, None));
-        // Modernize the security setup -- should this be a callback for the application?
+        // Modernize the security setup.
+        // TODO: Make this configurable somehow, with reasonable defaults -- maybe
+        // a "TLS config" object, and/or could be a callback to use NSS APIs directly.
+        // TODO: ...and extend that to controlling the webpki config; will need that
+        // for real-world revocation checking if nothing else.
         nss_try!(outer.limit_version(Some(TLS_VERSION_1_0), None));
         nss_try!(outer.set_option(SSL_ENABLE_SESSION_TICKETS, true));
         nss_try!(limit_ciphersuites(&mut outer, MODERN_CRYPTO));
