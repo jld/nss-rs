@@ -5,8 +5,8 @@ extern crate time;
 
 use hyper::net::{NetworkStream, SslClient};
 use nss::{File, FileMethods, FileWrapper, TLSSocket, BorrowedTLSSocket, AuthCertificateHook,
-          TLS_VERSION_1_0};
-use nss::nspr::error::{PR_NOT_CONNECTED_ERROR};
+          TLSCipherSuite, TLS_VERSION_1_0, SSL_ENABLE_SESSION_TICKETS};
+use nss::error::{PR_NOT_CONNECTED_ERROR, SSL_ERROR_UNKNOWN_CIPHER_SUITE};
 use nss::nspr::fd::PR_DESC_SOCKET_TCP;
 use nss_webpki::{TrustConfig, MOZILLA_ANCHORS, ALL_SIG_ALGS};
 use time::get_time;
@@ -37,6 +37,40 @@ macro_rules! nss_try {
     ($e:expr) => { try!($e.map_err(Into::<io::Error>::into)) }
 }
 
+// Copied from Firefox 52.
+const MODERN_CRYPTO: &'static [TLSCipherSuite] = &[
+    nss::TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+    nss::TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+    nss::TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256,
+    nss::TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
+    nss::TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
+    nss::TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+    nss::TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA,
+    nss::TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA,
+    nss::TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA,
+    nss::TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA,
+    nss::TLS_DHE_RSA_WITH_AES_128_CBC_SHA,
+    nss::TLS_DHE_RSA_WITH_AES_256_CBC_SHA,
+    nss::TLS_RSA_WITH_AES_128_CBC_SHA,
+    nss::TLS_RSA_WITH_AES_256_CBC_SHA,
+    nss::TLS_RSA_WITH_3DES_EDE_CBC_SHA,
+];
+
+fn limit_ciphersuites<Cb>(sock: &mut TLSSocket<Cb>, suites: &[TLSCipherSuite]) -> nss::Result<()> {
+    // Turn everything off.
+    for &suite in TLSCipherSuite::implemented() {
+        try!(sock.set_ciphersuite_enabled(suite, false));
+    }
+    // Then turn on the ones we want.
+    for &suite in suites {
+        try!(match sock.set_ciphersuite_enabled(suite, true) {
+            Err(e) if e.nspr_error == SSL_ERROR_UNKNOWN_CIPHER_SUITE => Ok(()),
+            other => other,
+        })
+    }
+    Ok(())
+}
+
 impl<N: NetworkStream + Clone> SslClient<N> for NssClient<N> {
     type Stream = FileToStream<TLSSocket<NSSCallbacks>>;
 
@@ -49,10 +83,12 @@ impl<N: NetworkStream + Clone> SslClient<N> for NssClient<N> {
         // FIXME: should this be in an `on_register` method or someting?
         nss_try!(outer.set_url(&outer.callbacks().host_name));
         nss_try!(outer.use_auth_certificate_hook());
-        // This "connect" just fixes NSS's state; handshake isn't send until first write.
+        // This "connect" just fixes NSS's state; handshake isn't sent until first write.
         nss_try!(outer.connect(peer_addr, None));
         // Modernize the security setup -- should this be a callback for the application?
         nss_try!(outer.limit_version(Some(TLS_VERSION_1_0), None));
+        nss_try!(outer.set_option(SSL_ENABLE_SESSION_TICKETS, true));
+        nss_try!(limit_ciphersuites(&mut outer, MODERN_CRYPTO));
         Ok(FileToStream::new(outer))
     }
 }

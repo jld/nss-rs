@@ -1,10 +1,10 @@
 [package]
 name = "nss-hyper"
-version = "0.4.4"
+version = "0.4.6"
 authors = ["Jed Davis <jld@mozilla.com>"]
 
 [dependencies]
 hyper = "0.9.10"
-nss = { version = "0.6.3", path = ".." }
+nss = { version = "0.6.6", path = ".." }
 nss-webpki = { version = "0.3", path = "../nss-webpki" }
 time = "0.1.35"
