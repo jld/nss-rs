@@ -506,6 +506,10 @@ mod tests {
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::time::Duration;
 
+    fn fake_addr() -> SocketAddr {
+        SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), 443))
+    }
+
     #[test]
     fn just_init() {
         init().unwrap();
@@ -513,10 +517,6 @@ mod tests {
 
     #[test]
     fn handshake() {
-        fn fake_addr() -> SocketAddr {
-            SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), 443))
-        }
-
         struct FakeSocket {
             connected: AtomicBool,
             written: Arc<Mutex<Vec<u8>>>,
@@ -573,5 +573,19 @@ mod tests {
         ssl.connect(fake_addr(), None).unwrap();
         assert_eq!(ssl.write(&[]).unwrap_err().nspr_error, PR_END_OF_FILE_ERROR);
         println!("DATA: {:?}", &buf.lock().unwrap()[..]);
+    }
+
+    #[test]
+    #[should_panic(expected = "not yet implemented")]
+    fn inner_panic() {
+        struct BrokenSocket;
+        impl FileMethods for BrokenSocket { /* `unimplemented!()` *all* the things! */ }
+
+        init().unwrap();
+        let inner = BrokenSocket;
+        let sock_factory = FileWrapper::new(nspr::fd::PR_DESC_SOCKET_TCP);
+        let sock = sock_factory.wrap(inner);
+        let ssl = TLSSocket::new(sock, ()).unwrap();
+        ssl.connect(fake_addr(), None).unwrap();
     }
 }
