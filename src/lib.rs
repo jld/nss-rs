@@ -155,11 +155,20 @@ impl<Callbacks> TLSSocket<Callbacks> {
         }
         let raw_model = model.map_or(nspr::fd::null(), |fd| fd.as_raw_prfd());
         unsafe {
-            let file = try!(wrap_ffi(|| {
+            let file = try!(wrap_ffi(move || {
                 let raw = ffi::SSL_ImportFD(raw_model, inner.as_raw_prfd());
+                // This call can "succeed" (return non-null) but have
+                // panicked in Rust.  And we retain ownership of
+                // `inner` if and only if SSL_ImportFD returned null.
+                // So, if this mem::forget were after this `try!`,
+                // that would correctly fail to forget (i.e., destroy)
+                // `inner` in the failure case, but would double-free
+                // if a Rust callback in SSL_ImportFD panicked.
+                if !raw.is_null() {
+                    mem::forget(inner);
+                }
                 File::from_raw_prfd_err(raw)
             }));
-            mem::forget(inner);
             Ok(TLSSocket(Box::new(TLSSocketImpl {
                 file: file,
                 callbacks: callbacks,
