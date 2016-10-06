@@ -33,6 +33,10 @@ thread_local! {
     static INNER_PANIC: RefCell<Option<Box<Any + Send + 'static>>> = RefCell::new(None)
 }
 
+fn panic_pending() -> bool {
+    INNER_PANIC.with(|storage| storage.borrow().is_some())
+}
+
 #[derive(Debug)]
 // FIXME: this shouldn't be pub, but from_raw_prfd_err
 pub enum GenStatus<T> {
@@ -55,7 +59,7 @@ fn wrap_ffi<T, R, F>(f: F) -> Result<T>
     where R: Into<GenStatus<T>>,
           F: FnOnce() -> R
 {
-    debug_assert!(INNER_PANIC.with(|storage| storage.borrow().is_none()));
+    debug_assert!(!panic_pending());
     let result = match f().into() {
         GenStatus::Success(ok) => Ok(ok),
         GenStatus::SpecificError(err) => Err(err),
@@ -72,17 +76,22 @@ fn wrap_callback<R, F>(failed: R, f: F) -> R
     where F: FnOnce() -> Result<R>
 {
     let f = panic::AssertUnwindSafe(f);
-    panic::catch_unwind(f).unwrap_or_else(|panic| {
-        INNER_PANIC.with(|storage| {
-            let mut storage = storage.borrow_mut();
-            debug_assert!(storage.is_none());
-            *storage = Some(panic);
-        });
+    let res = if panic_pending() {
+        // If a C->Rust callback panics, and the C code does further
+        // calls into Rust before returning to its Rust caller, those
+        // need to fail immediately and not run the actual callback.
         Err(PR_UNKNOWN_ERROR.into())
-    }).unwrap_or_else(|err| {
-        err.set();
-        failed
-    })
+    } else {
+        panic::catch_unwind(f).unwrap_or_else(|panic| {
+            INNER_PANIC.with(|storage| {
+                let mut storage = storage.borrow_mut();
+                debug_assert!(storage.is_none());
+                *storage = Some(panic);
+            });
+            Err(PR_UNKNOWN_ERROR.into())
+        })
+    };
+    res.unwrap_or_else(|err| { err.set(); failed })
 }
 
 fn result_bool_getter<F>(f: F) -> Result<bool>
