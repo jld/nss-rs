@@ -577,9 +577,28 @@ mod tests {
 
     #[test]
     #[should_panic(expected = "not yet implemented")]
-    fn inner_panic() {
+    fn inner_panic1() {
         struct BrokenSocket;
         impl FileMethods for BrokenSocket { /* `unimplemented!()` *all* the things! */ }
+
+        init().unwrap();
+        let inner = BrokenSocket;
+        let sock_factory = FileWrapper::new(nspr::fd::PR_DESC_SOCKET_TCP);
+        let sock = sock_factory.wrap(inner);
+        let _ssl = TLSSocket::new(sock, ()).unwrap();
+    }
+
+    #[test]
+    #[should_panic(expected = "not yet implemented")]
+    fn inner_panic2() {
+        struct BrokenSocket;
+        impl FileMethods for BrokenSocket {
+            // Implement this so that we get far enough to hit a panic
+            // with NSPR locks held.
+            fn getpeername(&self) -> Result<SocketAddr> {
+                Err(PR_NOT_CONNECTED_ERROR.into())
+            }
+        }
 
         init().unwrap();
         let inner = BrokenSocket;
