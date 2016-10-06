@@ -39,6 +39,7 @@ macro_rules! nss_try {
 
 // Copied from Firefox 52.
 const MODERN_CRYPTO: &'static [TLSCipherSuite] = &[
+    // FIXME: should the TLS 1.3 draft AEAD stuff go here?
     nss::TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
     nss::TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
     nss::TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256,

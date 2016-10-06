@@ -5,6 +5,7 @@ use std::mem;
 use std::u16;
 use nspr::error::Result;
 use nspr::fd::File;
+use wrap_ffi;
 
 // FIXME is this going to be a "strict aliasing" problem?
 pub struct NetAddrStorage(ffi::PRNetAddrInet6);
@@ -65,12 +66,12 @@ pub unsafe fn write_net_addr(ptr: *mut ffi::PRNetAddr, addr: SocketAddr) {
 
 pub fn new_tcp_socket(af: c_int) -> Result<File> {
     super::init();
-    unsafe { File::from_raw_prfd_err(ffi::PR_OpenTCPSocket(af)) }
+    wrap_ffi(|| unsafe { File::from_raw_prfd_err(ffi::PR_OpenTCPSocket(af)) })
 }
 
 pub fn new_udp_socket(af: c_int) -> Result<File> {
     super::init();
-    unsafe { File::from_raw_prfd_err(ffi::PR_OpenUDPSocket(af)) }
+    wrap_ffi(|| unsafe { File::from_raw_prfd_err(ffi::PR_OpenUDPSocket(af)) })
 }
 
 #[cfg(test)]

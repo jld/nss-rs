@@ -4,12 +4,11 @@ pub mod net;
 pub mod time;
 
 use nss_sys::nspr as ffi;
-use nspr::error::{Result, failed};
 
 use std::marker::PhantomData;
 use std::sync::{Once, ONCE_INIT};
 
-pub use self::error::Error;
+use GenStatus;
 pub use self::fd::File;
 
 pub fn init() {
@@ -28,18 +27,22 @@ pub fn init() {
     });
 }
 
-fn result_len32(rv: i32) -> Result<usize> {
-    if rv >= 0 {
-        Ok(rv as usize)
-    } else {
-        failed()
+impl From<ffi::PRStatus> for GenStatus<()> {
+    fn from(status: ffi::PRStatus) -> Self {
+        match status {
+            ffi::PR_SUCCESS => GenStatus::Success(()),
+            ffi::PR_FAILURE => GenStatus::ErrorFromC,
+        }
     }
 }
 
-fn result_prstatus(rv: ffi::PRStatus) -> Result<()> {
-    match rv {
-        ffi::PR_SUCCESS => Ok(()),
-        ffi::PR_FAILURE => failed(),
+impl From<i32> for GenStatus<usize> {
+    fn from(rv: i32) -> Self {
+        if rv >= 0 {
+            GenStatus::Success(rv as usize)
+        } else {
+            GenStatus::ErrorFromC
+        }
     }
 }
 

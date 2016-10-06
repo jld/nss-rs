@@ -8,38 +8,89 @@ pub mod nspr;
 
 use libc::c_void;
 use nss_sys as ffi;
+use std::any::Any;
 use std::borrow::Borrow;
+use std::cell::RefCell;
 use std::cmp;
 use std::ffi::CStr;
 use std::mem;
 use std::ops::{Deref,DerefMut};
+use std::panic;
 use std::ptr;
 use std::slice;
 
-pub use error::{Error, Result, failed};
+pub use error::{Error, Result};
 pub use nspr::fd::{File, FileMethods, FileWrapper};
 pub use cert::{Certificate, CertList};
 use nspr::fd::{RawFile, BorrowedFile};
 use nspr::{bool_from_nspr, bool_to_nspr};
-use error::PR_WOULD_BLOCK_ERROR;
+use error::{PR_WOULD_BLOCK_ERROR, PR_UNKNOWN_ERROR};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub struct ErrorCode(ffi::nspr::PRErrorCode);
 
-fn result_secstatus(status: ffi::SECStatus) -> Result<()> {
-    // Must call this immediately after the NSS operation so that the
-    // thread-local error state isn't stale.
-    match status {
-        ffi::SECSuccess => Ok(()),
-        ffi::SECFailure => failed(),
-        ffi::SECWouldBlock => Err(PR_WOULD_BLOCK_ERROR.into()),
+thread_local! {
+    static INNER_PANIC: RefCell<Option<Box<Any + Send + 'static>>> = RefCell::new(None)
+}
+
+#[derive(Debug)]
+// FIXME: this shouldn't be pub, but from_raw_prfd_err
+pub enum GenStatus<T> {
+    Success(T),
+    ErrorFromC,
+    SpecificError(Error),
+}
+
+impl From<ffi::SECStatus> for GenStatus<()> {
+    fn from(status: ffi::SECStatus) -> Self {
+        match status {
+            ffi::SECSuccess => GenStatus::Success(()),
+            ffi::SECFailure => GenStatus::ErrorFromC,
+            ffi::SECWouldBlock => GenStatus::SpecificError(PR_WOULD_BLOCK_ERROR.into()),
+        }
     }
 }
 
-fn result_bool_getter<F: FnOnce(*mut ffi::nspr::PRBool) -> ffi::SECStatus>(f: F) -> Result<bool> {
+fn wrap_ffi<T, R, F>(f: F) -> Result<T>
+    where R: Into<GenStatus<T>>,
+          F: FnOnce() -> R
+{
+    debug_assert!(INNER_PANIC.with(|storage| storage.borrow().is_none()));
+    let result = match f().into() {
+        GenStatus::Success(ok) => Ok(ok),
+        GenStatus::SpecificError(err) => Err(err),
+        GenStatus::ErrorFromC => Err(Error::last()),
+    };
+    if let Some(panic) = INNER_PANIC.with(|storage| storage.borrow_mut().take()) {
+        panic::resume_unwind(panic)
+    } else {
+        result
+    }
+}
+
+fn wrap_callback<R, F>(failed: R, f: F) -> R
+    where F: FnOnce() -> Result<R>
+{
+    let f = panic::AssertUnwindSafe(f);
+    panic::catch_unwind(f).unwrap_or_else(|panic| {
+        INNER_PANIC.with(|storage| {
+            let mut storage = storage.borrow_mut();
+            debug_assert!(storage.is_none());
+            *storage = Some(panic);
+        });
+        Err(PR_UNKNOWN_ERROR.into())
+    }).unwrap_or_else(|err| {
+        err.set();
+        failed
+    })
+}
+
+fn result_bool_getter<F>(f: F) -> Result<bool>
+    where F: FnOnce(*mut ffi::nspr::PRBool) -> ffi::SECStatus
+{
     // Poison this with a bad value; bool_from_nspr will panic if it's still there.
     let mut value: ffi::nspr::PRBool = 0x5a;
-    try!(result_secstatus(f(&mut value as *mut _)));
+    try!(wrap_ffi(|| f(&mut value as *mut _)));
     Ok(bool_from_nspr(value))
 }
 
@@ -47,7 +98,7 @@ fn result_bool_getter<F: FnOnce(*mut ffi::nspr::PRBool) -> ffi::SECStatus>(f: F)
 
 pub fn init() -> Result<()> {
     nspr::init();
-    result_secstatus(unsafe { ffi::NSS_NoDB_Init(ptr::null()) })
+    wrap_ffi(|| unsafe { ffi::NSS_NoDB_Init(ptr::null()) })
 }
 
 // Caller must ensure this isn't one of the SECItems where the length
@@ -104,8 +155,10 @@ impl<Callbacks> TLSSocket<Callbacks> {
         }
         let raw_model = model.map_or(nspr::fd::null(), |fd| fd.as_raw_prfd());
         unsafe {
-            let raw = ffi::SSL_ImportFD(raw_model, inner.as_raw_prfd());
-            let file = try!(File::from_raw_prfd_err(raw));
+            let file = try!(wrap_ffi(|| {
+                let raw = ffi::SSL_ImportFD(raw_model, inner.as_raw_prfd());
+                File::from_raw_prfd_err(raw)
+            }));
             mem::forget(inner);
             Ok(TLSSocket(Box::new(TLSSocketImpl {
                 file: file,
@@ -118,7 +171,7 @@ impl<Callbacks> TLSSocket<Callbacks> {
         where Callbacks: AuthCertificateHook
     {
         let this: BorrowedTLSSocket<_> = &*self;
-        result_secstatus(unsafe {
+        wrap_ffi(|| unsafe {
             ffi::SSL_AuthCertificateHook(self.as_raw_prfd(),
                                          Some(raw_auth_certificate_hook::<Callbacks>),
                                          mem::transmute(this))
@@ -151,20 +204,20 @@ impl<Callbacks> TLSSocketImpl<Callbacks> {
     }
 
     pub fn set_url(&self, url: &CStr) -> Result<()> {
-        result_secstatus(unsafe {
+        wrap_ffi(|| unsafe {
             ffi::SSL_SetURL(self.as_raw_prfd(), url.as_ptr())
         })
     }
 
     pub fn unset_bad_cert_hook(&mut self) -> Result<()> {
         // This doesn't take locks in the C code, so needs a unique ref.
-        result_secstatus(unsafe {
+        wrap_ffi(|| unsafe {
             ffi::SSL_BadCertHook(self.as_raw_prfd(), None, ptr::null_mut())
         })
     }
 
     pub fn unset_auth_certificate_hook(&mut self) -> Result<()> {
-        result_secstatus(unsafe {
+        wrap_ffi(|| unsafe {
             ffi::SSL_AuthCertificateHook(self.as_raw_prfd(), None, ptr::null_mut())
         })
     }
@@ -174,13 +227,13 @@ impl<Callbacks> TLSSocketImpl<Callbacks> {
         unsafe extern "C" fn this_is_fine(_arg: *mut c_void, _fd: RawFile) -> ffi::SECStatus {
             ffi::SECSuccess
         }
-        result_secstatus(unsafe {
+        wrap_ffi(|| unsafe {
             ffi::SSL_BadCertHook(self.as_raw_prfd(), Some(this_is_fine), ptr::null_mut())
         })
     }
 
     pub fn set_option(&self, option: TLSOption, value: bool) -> Result<()> {
-        result_secstatus(unsafe {
+        wrap_ffi(|| unsafe {
             ffi::SSL_OptionSet(self.as_raw_prfd(), option.to_ffi(), bool_to_nspr(value))
         })
     }
@@ -196,7 +249,7 @@ impl<Callbacks> TLSSocketImpl<Callbacks> {
             min: min.to_ffi(),
             max: max.to_ffi(),
         };
-        result_secstatus(unsafe {
+        wrap_ffi(|| unsafe {
             ffi::SSL_VersionRangeSet(self.as_raw_prfd(), &range as *const _)
         })
     }
@@ -204,7 +257,7 @@ impl<Callbacks> TLSSocketImpl<Callbacks> {
 
     pub fn get_version_range(&self) -> Result<(TLSVersion, TLSVersion)> {
         let mut range = ffi::SSLVersionRange { min: 0xffff, max: 0 };
-        try!(result_secstatus(unsafe {
+        try!(wrap_ffi(|| unsafe {
             ffi::SSL_VersionRangeSet(self.as_raw_prfd(), &mut range as *mut _)
         }));
         Ok((TLSVersion(range.min), TLSVersion(range.max)))
@@ -217,7 +270,7 @@ impl<Callbacks> TLSSocketImpl<Callbacks> {
     }
 
     pub fn set_ciphersuite_enabled(&self, suite: TLSCipherSuite, enabled: bool) -> Result<()> {
-        result_secstatus(unsafe {
+        wrap_ffi(|| unsafe {
             ffi::SSL_CipherPrefSet(self.as_raw_prfd(), suite.to_ffi(), bool_to_nspr(enabled))
         })
     }
@@ -241,15 +294,15 @@ unsafe extern "C" fn raw_auth_certificate_hook<Callbacks>(arg: *mut c_void,
                                                           -> ffi::SECStatus
     where Callbacks: AuthCertificateHook
 {
-    // TODO: check identity?
-    let this: BorrowedTLSSocket<Callbacks> = mem::transmute(arg);
-    assert_eq!(this.as_raw_prfd(), fd);
-    match this.callbacks.auth_certificate(this,
-                                          bool_from_nspr(check_sig),
-                                          bool_from_nspr(is_server)) {
-        Ok(()) => ffi::SECSuccess,
-        Err(err) => { err.set(); ffi::SECFailure }
-    }
+    wrap_callback(ffi::SECFailure, || {
+        // TODO: check identity?
+        let this: BorrowedTLSSocket<Callbacks> = mem::transmute(arg);
+        assert_eq!(this.as_raw_prfd(), fd);
+        this.callbacks.auth_certificate(this,
+                                        bool_from_nspr(check_sig),
+                                        bool_from_nspr(is_server))
+            .map(|()| ffi::SECSuccess)
+    })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -305,7 +358,7 @@ impl TLSVersion {
     pub fn to_ffi(self) -> ffi::nspr::PRUint16 { self.0 }
     pub fn supported_range() -> Result<(Self, Self)> {
         let mut range = ffi::SSLVersionRange { min: 0xffff, max: 0 };
-        try!(result_secstatus(unsafe {
+        try!(wrap_ffi(|| unsafe {
             ffi::SSL_VersionRangeGetSupported(ffi::ssl_variant_stream, &mut range as *mut _)
         }));
         Ok((TLSVersion(range.min), TLSVersion(range.max)))

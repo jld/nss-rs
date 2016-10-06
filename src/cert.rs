@@ -1,5 +1,5 @@
 use nss_sys as ffi;
-use super::{sec_item_as_slice, result_secstatus, Result};
+use super::{sec_item_as_slice, wrap_ffi, Result};
 use nspr::{ListNode, Listable, ListIterator};
 use std::ffi::CStr;
 use std::marker::PhantomData;
@@ -42,7 +42,7 @@ impl Certificate {
     }
 
     pub fn verify_name(&self, host_name: &CStr) -> Result<()> {
-        result_secstatus(unsafe {
+        wrap_ffi(|| unsafe {
             ffi::CERT_VerifyCertName(self.as_raw_ptr(), host_name.as_ptr())
         })
     }
