@@ -1,7 +1,11 @@
 [package]
 name = "nss-hyper"
-version = "0.4.8"
+version = "0.4.9"
 authors = ["Jed Davis <jld@mozilla.com>"]
+# Change this description when server support is implemented:
+description = "Glue for using NSS as a TLS client with hyper"
+repository = "https://github.com/jld/nss-rs"
+license = "MPL-2.0"
 
 [dependencies]
 hyper = { version = "0.9.10", default_features = false }

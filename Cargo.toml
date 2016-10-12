@@ -1,7 +1,10 @@
 [package]
 name = "nss"
-version = "0.7.0"
+version = "0.7.1"
 authors = ["Jed Davis <jld@mozilla.com>"]
+description = "Bindings for the NSS cryptography library"
+repository = "https://github.com/jld/nss-rs"
+license = "MPL-2.0"
 
 [dependencies]
 nss-sys = { version = "0.1.8", path = "nss-sys" }

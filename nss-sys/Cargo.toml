@@ -1,7 +1,10 @@
 [package]
 name = "nss-sys"
-version = "0.1.8"
+version = "0.1.9"
 authors = ["Jed Davis <jld@mozilla.com>"]
+description = "Low-level/unsafe bindings for the NSS cryptography library"
+repository = "https://github.com/jld/nss-rs"
+license = "MPL-2.0"
 build = "build.rs"
 
 [dependencies]

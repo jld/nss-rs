@@ -1,7 +1,10 @@
 [package]
 name = "nss-webpki"
-version = "0.3.1"
+version = "0.3.2"
 authors = ["Jed Davis <jld@mozilla.com>"]
+description = "Glue for using webpki with NSS"
+repository = "https://github.com/jld/nss-rs"
+license = "MPL-2.0"
 
 [dependencies]
 nss = { version = "0.7.0", path = ".." }
