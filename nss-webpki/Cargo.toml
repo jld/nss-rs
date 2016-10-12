@@ -8,4 +8,4 @@ nss = { version = "0.7.0", path = ".." }
 time = "0.1.35"
 untrusted = "0.3.1"
 webpki = "0.3.0"
-mozilla-ca-certs = { version = "0.1", path = "../../mozilla-ca-certs" }
+mozilla-ca-certs = "0.1"
