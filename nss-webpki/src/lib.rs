@@ -50,7 +50,6 @@ macro_rules! webpki_try {
 impl<'a> TrustConfig<'a> {
     pub fn verify(&self, certs: &CertList, dns_name: &[u8], time: Timespec) -> Result<()> {
         let mut iter = certs.iter();
-        // FIXME overloading BadDER is not quite right.
         let ee_der = try!(iter.next().ok_or(error::SSL_ERROR_NO_CERTIFICATE)).as_der();
         let end_entity = webpki_try!(EndEntityCert::from(Input::from(ee_der)));
         let intermediates: Vec<_> = iter.map(|cert| Input::from(cert.as_der())).collect();
