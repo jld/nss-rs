@@ -1,3 +1,7 @@
+/* This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
+
 use libc::{c_char, c_uint, c_int, c_void};
 use nspr::{PLArenaPool, PRBool, PRUint32, PRCList};
 use super::{SECItem, SECAlgorithmID, NSSTrustDomainStr, NSSCertificateStr, PK11SlotInfo, CK_OBJECT_HANDLE, SECStatus};
