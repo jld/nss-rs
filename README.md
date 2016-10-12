@@ -3,7 +3,9 @@
 This is a very incomplete project for enabling Rust code to use the
 [NSS][] cryptography library.  Currently it exposes only the minimum
 needed to be a simple TLS client, and is almost completely lacking in
-documentation.
+documentation.  Also, there isn't yet support for building on OSes
+where NSS and NSPR aren't in the default place for system-installed
+libraries (i.e., Windows and Mac OS).
 
 Other crates in this repository:
 
