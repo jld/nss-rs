@@ -40,7 +40,7 @@ pub fn duration_from_nspr(it: ffi::PRIntervalTime) -> Duration {
     // FIXME should this assert it's not NO_TIMEOUT?
     // Seems wrong given it's the result of overflow above.
     let tps = *NSPR_TICKS_PER_SEC;
-    Duration::new((it / tps) as u64, scale_u32((it % tps), tps, 1_000_000_000))
+    Duration::new((it / tps) as u64, scale_u32(it % tps, tps, 1_000_000_000))
 }
 
 pub fn duration_opt_from_nspr(it: ffi::PRIntervalTime) -> Option<Duration> {

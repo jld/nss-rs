@@ -2,5 +2,10 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-pub use nspr::error::*;
-pub use ffi::{SSLErrorCodes, SECErrorCodes};
+#include <nss.h>
+#include <certt.h>
+#include <sslproto.h>
+#include <ssl.h>
+#include <secerr.h>
+#include <sslerr.h>
+

@@ -52,9 +52,9 @@ pub enum GenStatus<T> {
 impl From<ffi::SECStatus> for GenStatus<()> {
     fn from(status: ffi::SECStatus) -> Self {
         match status {
-            ffi::SECSuccess => GenStatus::Success(()),
-            ffi::SECFailure => GenStatus::ErrorFromC,
-            ffi::SECWouldBlock => GenStatus::SpecificError(PR_WOULD_BLOCK_ERROR.into()),
+            ffi::SECStatus::SECSuccess => GenStatus::Success(()),
+            ffi::SECStatus::SECFailure => GenStatus::ErrorFromC,
+            ffi::SECStatus::SECWouldBlock => GenStatus::SpecificError(PR_WOULD_BLOCK_ERROR.into()),
         }
     }
 }
@@ -247,7 +247,7 @@ impl<Callbacks> TLSSocketImpl<Callbacks> {
     // FIXME: turn this into an actual callback now that that's possible?
     pub fn disable_security(&mut self) -> Result<()> {
         unsafe extern "C" fn this_is_fine(_arg: *mut c_void, _fd: RawFile) -> ffi::SECStatus {
-            ffi::SECSuccess
+            ffi::SECStatus::SECSuccess
         }
         wrap_ffi(|| unsafe {
             ffi::SSL_BadCertHook(self.as_raw_prfd(), Some(this_is_fine), ptr::null_mut())
@@ -316,14 +316,14 @@ unsafe extern "C" fn raw_auth_certificate_hook<Callbacks>(arg: *mut c_void,
                                                           -> ffi::SECStatus
     where Callbacks: AuthCertificateHook
 {
-    wrap_callback(ffi::SECFailure, || {
+    wrap_callback(ffi::SECStatus::SECFailure, || {
         // TODO: check identity?
         let this: BorrowedTLSSocket<Callbacks> = mem::transmute(arg);
         assert_eq!(this.as_raw_prfd(), fd);
         this.callbacks.auth_certificate(this,
                                         bool_from_nspr(check_sig),
                                         bool_from_nspr(is_server))
-            .map(|()| ffi::SECSuccess)
+            .map(|()| ffi::SECStatus::SECSuccess)
     })
 }
 
@@ -335,7 +335,7 @@ impl TLSOption {
 }
 
 macro_rules! def_options {{ $($name:ident,)* } => {
-    $(pub const $name: TLSOption = TLSOption(ffi::$name);)*
+    $(pub const $name: TLSOption = TLSOption(ffi::$name as i32);)*
 }}
 
 def_options! {
@@ -381,7 +381,7 @@ impl TLSVersion {
     pub fn supported_range() -> Result<(Self, Self)> {
         let mut range = ffi::SSLVersionRange { min: 0xffff, max: 0 };
         try!(wrap_ffi(|| unsafe {
-            ffi::SSL_VersionRangeGetSupported(ffi::ssl_variant_stream, &mut range as *mut _)
+            ffi::SSL_VersionRangeGetSupported(ffi::SSLProtocolVariant::ssl_variant_stream, &mut range as *mut _)
         }));
         Ok((TLSVersion(range.min), TLSVersion(range.max)))
     }
@@ -414,7 +414,7 @@ impl TLSCipherSuite {
 }
 
 macro_rules! def_ciphers {{ $($name:ident,)* } => {
-    $(pub const $name: TLSCipherSuite = TLSCipherSuite(ffi::$name);)*
+    $(pub const $name: TLSCipherSuite = TLSCipherSuite(ffi::$name as u16);)*
 }}
 
 // Just wrap the ciphersuites that are currently actually implemented
@@ -571,7 +571,7 @@ mod tests {
         init().unwrap();
         let inner = FakeSocket::new();
         let buf = inner.written.clone();
-        let sock_factory = FileWrapper::new(nspr::fd::PR_DESC_SOCKET_TCP);
+        let sock_factory = FileWrapper::new(nspr::fd::PRDescType::PR_DESC_SOCKET_TCP);
         let sock = sock_factory.wrap(inner);
         let ssl = TLSSocket::new(sock, ()).unwrap();
         ssl.connect(fake_addr(), None).unwrap();
@@ -587,7 +587,7 @@ mod tests {
 
         init().unwrap();
         let inner = BrokenSocket;
-        let sock_factory = FileWrapper::new(nspr::fd::PR_DESC_SOCKET_TCP);
+        let sock_factory = FileWrapper::new(nspr::fd::PRDescType::PR_DESC_SOCKET_TCP);
         let sock = sock_factory.wrap(inner);
         let _ssl = TLSSocket::new(sock, ()).unwrap();
     }
@@ -606,7 +606,7 @@ mod tests {
 
         init().unwrap();
         let inner = BrokenSocket;
-        let sock_factory = FileWrapper::new(nspr::fd::PR_DESC_SOCKET_TCP);
+        let sock_factory = FileWrapper::new(nspr::fd::PRDescType::PR_DESC_SOCKET_TCP);
         let sock = sock_factory.wrap(inner);
         let ssl = TLSSocket::new(sock, ()).unwrap();
         ssl.connect(fake_addr(), None).unwrap();

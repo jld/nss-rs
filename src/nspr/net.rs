@@ -11,8 +11,7 @@ use nspr::error::Result;
 use nspr::fd::File;
 use wrap_ffi;
 
-// FIXME is this going to be a "strict aliasing" problem?
-pub struct NetAddrStorage(ffi::PRNetAddrInet6);
+pub struct NetAddrStorage(ffi::PRNetAddr);
 impl NetAddrStorage {
     pub fn new() -> Self { unsafe { mem::uninitialized() } }
     pub fn as_ptr(&self) -> *const ffi::PRNetAddr { self as *const NetAddrStorage as *const _ }
@@ -21,22 +20,20 @@ impl NetAddrStorage {
 
 pub unsafe fn read_net_addr(ptr: *const ffi::PRNetAddr) -> Option<SocketAddr> {
     // This is kind of ridiculous given that they're almost the same structure internally....
-    let family = (*(ptr as *const ffi::PRNetAddrRaw)).family;
+    let family = (*ptr).raw.family;
     if family == AF_INET as u16 {
-        let ptr = ptr as *const ffi::PRNetAddrInet;
-        let port = u16::from_be((*ptr).port);
-        let ip: [u8; 4] = mem::transmute((*ptr).ip);
+        let port = u16::from_be((*ptr).inet.port);
+        let ip: [u8; 4] = mem::transmute((*ptr).inet.ip);
         Some(SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(ip[0], ip[1], ip[2], ip[3]), port)))
     } else if family == AF_INET6 as u16 {
-        let ptr = ptr as *const ffi::PRNetAddrInet6;
-        let port = u16::from_be((*ptr).port);
-        let mut ip: [u16; 8] = mem::transmute((*ptr).ip);
+        let port = u16::from_be((*ptr).ipv6.port);
+        let mut ip: [u16; 8] = mem::transmute((*ptr).ipv6.ip);
         for seg in ip.iter_mut() {
             *seg = u16::from_be(*seg)
         }
         Some(SocketAddr::V6(SocketAddrV6::new(Ipv6Addr::new(ip[0], ip[1], ip[2], ip[3],
                                                             ip[4], ip[5], ip[6], ip[7]),
-                                              port, (*ptr).flowinfo, (*ptr).scope_id)))
+                                              port, (*ptr).ipv6.flowinfo, (*ptr).ipv6.scope_id)))
     } else {
         None
     }

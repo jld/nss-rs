@@ -7,7 +7,7 @@ pub mod fd;
 pub mod net;
 pub mod time;
 
-use nss_sys::nspr as ffi;
+use nss_sys as ffi;
 
 use std::marker::PhantomData;
 use std::sync::{Once, ONCE_INIT};
@@ -26,16 +26,16 @@ pub fn init() {
         // These argument values haven't been used since before NSPR
         // was released as open source, but fill in something reasonable.
         unsafe {
-            ffi::PR_Init(ffi::PR_SYSTEM_THREAD, ffi::PR_PRIORITY_NORMAL, 0);
+            ffi::nspr::PR_Init(ffi::nspr::PRThreadType::PR_SYSTEM_THREAD, ffi::nspr::PRThreadPriority::PR_PRIORITY_NORMAL, 0);
         }
     });
 }
 
-impl From<ffi::PRStatus> for GenStatus<()> {
-    fn from(status: ffi::PRStatus) -> Self {
+impl From<ffi::nspr::PRStatus> for GenStatus<()> {
+    fn from(status: ffi::nspr::PRStatus) -> Self {
         match status {
-            ffi::PR_SUCCESS => GenStatus::Success(()),
-            ffi::PR_FAILURE => GenStatus::ErrorFromC,
+            ffi::nspr::PRStatus::PR_SUCCESS => GenStatus::Success(()),
+            ffi::nspr::PRStatus::PR_FAILURE => GenStatus::ErrorFromC,
         }
     }
 }
@@ -50,24 +50,24 @@ impl From<i32> for GenStatus<usize> {
     }
 }
 
-pub fn bool_from_nspr(b: ffi::PRBool) -> bool {
+pub fn bool_from_nspr(b: ffi::nspr::PRBool) -> bool {
     match b {
-        ffi::PR_FALSE => false,
-        ffi::PR_TRUE => true,
+        ffi::nspr::PR_FALSE => false,
+        ffi::nspr::PR_TRUE => true,
         _ => unreachable!(),
     }
 }
 
-pub fn bool_to_nspr(b: bool) -> ffi::PRBool {
+pub fn bool_to_nspr(b: bool) -> ffi::nspr::PRBool {
     if b {
-        ffi::PR_TRUE
+        ffi::nspr::PR_TRUE
     } else {
-        ffi::PR_FALSE
+        ffi::nspr::PR_FALSE
     }
 }
 
 
-pub type ListNode = *mut ffi::PRCList;
+pub type ListNode = *mut ffi::nspr::PRCList;
 
 pub trait Listable {
     unsafe fn from_list_node(node: ListNode) -> Self;

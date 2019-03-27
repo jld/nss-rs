@@ -19,6 +19,8 @@ use nspr::net::{NetAddrStorage, read_net_addr, write_net_addr};
 use nspr::time::duration_opt_to_nspr;
 use {GenStatus, wrap_ffi};
 
+pub use nss_sys::nspr::PRDescType;
+
 pub type RawFile = *mut ffi::PRFileDesc;
 
 pub struct File(RawFile);
@@ -215,7 +217,7 @@ impl FileMethods for File {
 
     fn get_nonblocking(&self) -> Result<bool> {
         type OptCase = ffi::PRSocketOptionCase<ffi::PRBool>;
-        let mut buf = OptCase::new(ffi::PR_SockOpt_Nonblocking, ffi::PR_FALSE);
+        let mut buf = OptCase::new(ffi::PRSockOption::PR_SockOpt_Nonblocking, ffi::PR_FALSE);
         try!(wrap_ffi(|| unsafe {
             ffi::PR_GetSocketOption(self.as_raw_prfd(), buf.as_mut_ptr())
         }));
@@ -224,8 +226,6 @@ impl FileMethods for File {
 }
 
 pub type FileType = ffi::PRDescType;
-pub use nss_sys::nspr::{PR_DESC_FILE, PR_DESC_SOCKET_TCP, PR_DESC_SOCKET_UDP, PR_DESC_LAYERED,
-                        PR_DESC_PIPE};
 
 pub struct FileWrapper<Inner: FileMethods> {
     methods_ref: Arc<ffi::PRIOMethods>,
@@ -326,8 +326,7 @@ mod wrapper_methods {
     use super::{FileMethods, BorrowedFile, WrappedFileImpl, WRAPPED_FILE_IDENT};
     use libc::c_void;
     use nss_sys::nspr::{PRFileDesc, PRNetAddr, PRStatus, PRInt32, PRIntn, PRIntervalTime, PRBool,
-                        PRSocketOptionData, PRSocketOptionCase, PR_SockOpt_Nonblocking,
-                        PR_SUCCESS, PR_FAILURE, PR_MSG_PEEK};
+                        PRSocketOptionData, PR_MSG_PEEK, PRSocketOptionCase, PRSockOption};
     use nspr::bool_to_nspr;
     use nspr::error::PR_ADDRESS_NOT_SUPPORTED_ERROR;
     use nspr::net::{read_net_addr, write_net_addr};
@@ -342,7 +341,7 @@ mod wrapper_methods {
     }
 
     pub unsafe extern "C" fn close<Inner: FileMethods>(fd: *mut PRFileDesc) -> PRStatus {
-        wrap_callback(PR_FAILURE, || {
+        wrap_callback(PRStatus::PR_FAILURE, || {
             let raw_box = {
                 let mut this = xlate_fd::<Inner>(fd);
                 // Ensure that, whatever in-place linked list node swapping
@@ -354,7 +353,7 @@ mod wrapper_methods {
                 this.get_mut() as *mut WrappedFileImpl<Inner>
             };
             mem::drop(Box::from_raw(raw_box));
-            Ok(PR_SUCCESS)
+            Ok(PRStatus::PR_SUCCESS)
         })
     }
 
@@ -385,12 +384,12 @@ mod wrapper_methods {
     pub unsafe extern "C" fn connect<Inner: FileMethods>(fd: *mut PRFileDesc,
                                                          addr: *const PRNetAddr,
                                                          timeout: PRIntervalTime) -> PRStatus {
-        wrap_callback(PR_FAILURE, || {
+        wrap_callback(PRStatus::PR_FAILURE, || {
             let this = xlate_fd::<Inner>(fd);
             if let Some(rust_addr) = read_net_addr(addr) {
                 this.get_ref()
                     .connect(rust_addr, duration_opt_from_nspr(timeout))
-                    .map(|()| PR_SUCCESS)
+                    .map(|()| PRStatus::PR_SUCCESS)
             } else {
                 Err(PR_ADDRESS_NOT_SUPPORTED_ERROR.into())
             }
@@ -430,22 +429,22 @@ mod wrapper_methods {
 
     pub unsafe extern "C" fn getsockname<Inner: FileMethods>(fd: *mut PRFileDesc,
                                                              addr: *mut PRNetAddr) -> PRStatus {
-        wrap_callback(PR_FAILURE, || {
+        wrap_callback(PRStatus::PR_FAILURE, || {
             let this = xlate_fd::<Inner>(fd);
             this.get_ref().getsockname().map(|rust_addr| {
                 write_net_addr(addr, rust_addr);
-                PR_SUCCESS 
+                PRStatus::PR_SUCCESS
             })
         })
     }
 
     pub unsafe extern "C" fn getpeername<Inner: FileMethods>(fd: *mut PRFileDesc,
                                                              addr: *mut PRNetAddr) -> PRStatus {
-        wrap_callback(PR_FAILURE, || {
+        wrap_callback(PRStatus::PR_FAILURE, || {
             let this = xlate_fd::<Inner>(fd);
             this.get_ref().getpeername().map(|rust_addr| {
                 write_net_addr(addr, rust_addr);
-                PR_SUCCESS 
+                PRStatus::PR_SUCCESS
             })
         })
     }
@@ -453,14 +452,14 @@ mod wrapper_methods {
     pub unsafe extern "C" fn getsocketoption<Inner: FileMethods>(fd: *mut PRFileDesc,
                                                                  data: *mut PRSocketOptionData)
                                                                  -> PRStatus {
-        wrap_callback(PR_FAILURE, || {
+        wrap_callback(PRStatus::PR_FAILURE, || {
             let this = xlate_fd::<Inner>(fd);
-            match (*data).get_enum() {
-                PR_SockOpt_Nonblocking => {
+            match (*data).option {
+                PRSockOption::PR_SockOpt_Nonblocking => {
                     let data = data as *mut PRSocketOptionCase<PRBool>;
                     this.get_ref().get_nonblocking().map(|b| {
                         (*data).value = bool_to_nspr(b);
-                        PR_SUCCESS
+                        PRStatus::PR_SUCCESS
                     })
                 }
                 _ => unimplemented!()
@@ -503,14 +502,14 @@ mod tests {
 
     #[test]
     fn wrapped_pipe_rdwr() {
-        let wrapper = FileWrapper::new(PR_DESC_PIPE);
+        let wrapper = FileWrapper::new(PRDescType::PR_DESC_PIPE);
         let (reader, writer) = new_pipe().unwrap();
         pipe_test(wrapper.wrap(reader), wrapper.wrap(writer));
     }
 
     #[test]
     fn very_wrapped_pipe_rdwr() {
-        let wrapper = FileWrapper::new(PR_DESC_PIPE);
+        let wrapper = FileWrapper::new(PRDescType::PR_DESC_PIPE);
         let (mut reader, mut writer) = new_pipe().unwrap();
         for _ in 0..100 {
             reader = wrapper.wrap(reader);
