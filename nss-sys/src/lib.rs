@@ -11,3 +11,7 @@ pub mod nspr;
 use nspr::*;
 
 include!(concat!(env!("OUT_DIR"), "/nss.rs"));
+
+pub const CK_TRUE: CK_BBOOL = 1;
+pub const CK_FALSE: CK_BBOOL = 1;
+

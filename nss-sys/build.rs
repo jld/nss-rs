@@ -24,6 +24,39 @@ impl ParseCallbacks for NSSTypes {
         if is_prefix(name, "PR_MSG_") {
             return Some(IntKind::I32)
         }
+        if is_prefix(name, "CKF_") {
+            // This should be typed CK_FLAGS
+            // on amd64: u64, may be u32 on 32bit, not sure, have to check
+            return Some(IntKind::U64)
+        }
+        if is_prefix(name, "CKR_") {
+            // This should be typed CK_RV
+            // on amd64: u64, may be u32 on 32bit, not sure, have to check
+            return Some(IntKind::U64)
+        }
+        if is_prefix(name, "CKM_") {
+            // This should be typed CK_MECHANISM_TYPE
+            // on amd64: u64, may be u32 on 32bit, not sure, have to check
+            return Some(IntKind::U64)
+        }
+        if is_prefix(name, "CKA_") {
+            // This should be typed CK_ATTRIBUTE_TYPE
+            // on amd64: u64, may be u32 on 32bit, not sure, have to check
+            return Some(IntKind::U64)
+        }
+        if is_prefix(name, "CKD_") {
+            // This should be typed CK_EC_KDF_TYPE
+            // on amd64: u64, may be u32 on 32bit, not sure, have to check
+            return Some(IntKind::U64)
+        }
+        if is_prefix(name, "PK11_") {
+            // This should be typed PK11AttrFlags
+            return Some(IntKind::U32)
+        }
+        if is_prefix(name, "SEC_ASN1_OBJECT_ID") {
+            return Some(IntKind::U8)
+        }
+
         if name == "PR_FALSE" || name == "PR_TRUE" {
             return Some(IntKind::I32)
         }
@@ -60,17 +93,37 @@ fn main() {
         .whitelist_type("SEC.*")
         .whitelist_type("SSL.*")
         .whitelist_type("CERT.*")
+        .whitelist_type("CKF_.*")
+        .whitelist_type("SECOID_.*")
+        .whitelist_type("ECCurve.*")
+        .whitelist_type("SEC_.*")
+        .whitelist_type("CK_.*")
+        .whitelist_var("NSS_.*")
         .whitelist_var("SSL_.*")
         .whitelist_var("TLS_.*")
         .whitelist_var("SRTP_.*")
         .whitelist_var("CERT_.*")
+        .whitelist_var("CKA_.*")
+        .whitelist_var("CKD_.*")
+        .whitelist_var("CKF_.*")
+        .whitelist_var("CKK_.*")
+        .whitelist_var("CKM_.*")
+        .whitelist_var("CKO_.*")
+        .whitelist_var("CKR_.*")
+        .whitelist_var("ECCurve.*")
+        .whitelist_var("SEC_.*")
+        .whitelist_var("PK11_.*")
         .whitelist_function("PK11_.*")
         .whitelist_function("SSL_.*")
         .whitelist_function("CERT_.*")
         .whitelist_function("NSS_.*")
+        .whitelist_function("SECOID_.*")
+        .whitelist_function("SECITEM_.*")
+        .whitelist_function("PORT_.*")
         .rustified_enum("_SEC.*")
         .rustified_enum("SEC.*")
         .rustified_enum("SSL.*")
+        .rustified_enum("CKF.*")
         .blacklist_type("PR.*")
         // Finish the builder and generate the bindings.
         .generate()

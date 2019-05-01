@@ -6,9 +6,14 @@
 extern crate lazy_static;
 extern crate libc;
 extern crate nss_sys;
+pub mod agreement;
+pub mod block;
 pub mod cert;
+pub mod context;
+pub mod ec;
 pub mod error;
 pub mod nspr;
+pub mod slot;
 
 use libc::c_void;
 use nss_sys as ffi;

@@ -4,8 +4,13 @@
 
 #include <nss.h>
 #include <certt.h>
+#include <pkcs11.h>
+#include <pk11pub.h>
 #include <sslproto.h>
 #include <ssl.h>
 #include <secerr.h>
+#include <ecl-exp.h>
 #include <sslerr.h>
-
+#include <secoidt.h>
+#include <secitem.h>
+#include <secport.h>
