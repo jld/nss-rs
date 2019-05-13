@@ -14,3 +14,4 @@
 #include <secoidt.h>
 #include <secitem.h>
 #include <secport.h>
+#include <secerr.h>

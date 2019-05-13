@@ -8,17 +8,20 @@ use nss_sys::nspr::PR_FALSE;
 use nss_sys::{
     PK11SymKey, PK11_PubDerive, CKA_DERIVE, CKM_ECDH1_DERIVE, CKM_TLS12_MASTER_KEY_DERIVE_DH, PORT_Free,
     PK11_GetSymKeyNickname, PK11_GetKeyData, PK11_ExtractKeyValue, SECStatus, PK11_GetKeyLength,
-    PK11_FreeSymKey,
+    PK11_FreeSymKey, CKK_AES, CKM_AES_KEY_GEN, CKM_AES_CBC_ENCRYPT_DATA, CKM_AES_CBC, CKM_SEED_CBC_ENCRYPT_DATA,
 };
 
+use crate::port;
+use crate::error::SECErrorCodes;
 use crate::ec::{KeyPair, PublicKey};
 use crate::slot::Slot;
-use crate::block::KeyProvider;
+use crate::block::{KeyProvider, Mode};
 
 pub fn agree_ephemeral<'ctx, 'slot>(
     my_private_key: &mut KeyPair<'ctx, 'slot>,
     peer_public_key: &mut PublicKey,
-) -> Result<EphemeralKey<'ctx, 'slot>, ()> {
+    mode: Mode
+) -> Result<EphemeralKey<'ctx, 'slot>, SECErrorCodes> {
     let new_key = unsafe {
         PK11_PubDerive(
             my_private_key.private,
@@ -26,10 +29,10 @@ pub fn agree_ephemeral<'ctx, 'slot>(
             PR_FALSE,
             ptr::null_mut(),
             ptr::null_mut(),
-            CKM_ECDH1_DERIVE,
-            CKM_TLS12_MASTER_KEY_DERIVE_DH,
-            CKA_DERIVE,
-            0,
+            CKM_ECDH1_DERIVE, // derive
+            mode.to_ckm(), // target
+            CKA_DERIVE, // operation
+            mode.key_size(), // len
             ptr::null_mut(),
         )
     };
@@ -40,7 +43,7 @@ pub fn agree_ephemeral<'ctx, 'slot>(
             key: new_key,
         })
     } else {
-        Err(())
+        Err(port::get_error())
     }
 }
 

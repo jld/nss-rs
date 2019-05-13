@@ -49,6 +49,11 @@ impl ParseCallbacks for NSSTypes {
             // on amd64: u64, may be u32 on 32bit, not sure, have to check
             return Some(IntKind::U64)
         }
+        if is_prefix(name, "CKK_") {
+            // This should be typed CK_KEY_TYPE
+            // on amd64: u64, may be u32 on 32bit, not sure, have to check
+            return Some(IntKind::U64)
+        }
         if is_prefix(name, "PK11_") {
             // This should be typed PK11AttrFlags
             return Some(IntKind::U32)

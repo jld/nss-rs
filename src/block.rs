@@ -1,4 +1,4 @@
-use std::os::raw::c_uint;
+use std::os::raw::{c_uint, c_int};
 use std::ffi::c_void;
 use std::mem;
 use std::ptr;
@@ -6,23 +6,34 @@ use std::ptr;
 use nss_sys::{
     CKM_AES_CBC, CKR_OK, CK_MECHANISM, CK_MECHANISM_TYPE, CK_OBJECT_HANDLE, CK_ULONG,
     CK_AES_CBC_ENCRYPT_DATA_PARAMS, PK11SymKey, SECStatus, PK11_Encrypt, PK11_Decrypt,
+    SECItem, SECItemType,
 };
 
+use crate::port;
+use crate::error::SECErrorCodes;
+
+#[derive(Copy, Clone, Debug)]
 pub enum Mode {
-    AesCbc,
+    Aes256Cbc,
 }
 
 impl Mode {
-    fn to_ckm(&self) -> CK_MECHANISM_TYPE {
+    pub(crate) fn to_ckm(&self) -> CK_MECHANISM_TYPE {
         match *self {
-            Mode::AesCbc => CKM_AES_CBC,
+            Mode::Aes256Cbc => CKM_AES_CBC,
         }
     }
 
     fn pad_size(&self) -> usize {
         match *self {
             // No pad
-            Mode::AesCbc => 0,
+            Mode::Aes256Cbc => 0,
+        }
+    }
+
+    pub(crate) fn key_size(&self) -> c_int {
+        match *self {
+            Mode::Aes256Cbc => 32,
         }
     }
 }
@@ -42,10 +53,10 @@ pub trait KeyProvider {
     fn key(&self) -> *mut PK11SymKey;
 }
 
-pub fn encrypt<T: KeyProvider>(key: &T, mode: Mode, iv: &IV, data: &mut [u8]) -> Result<Vec<u8>, ()> {
+pub fn encrypt<T: KeyProvider>(key: &T, mode: Mode, iv: &IV, data: &mut [u8]) -> Result<Vec<u8>, SECErrorCodes> {
     let symkey = key.key();
     let mech = mode.to_ckm();
-    let mut param = CK_AES_CBC_ENCRYPT_DATA_PARAMS {
+    let mut aes_param = CK_AES_CBC_ENCRYPT_DATA_PARAMS {
         iv: iv.data(),
         pData: data.as_mut_ptr(),
         length: data.len() as CK_ULONG,
@@ -55,6 +66,12 @@ pub fn encrypt<T: KeyProvider>(key: &T, mode: Mode, iv: &IV, data: &mut [u8]) ->
     out.resize(data.len() + mode.pad_size(), 0);
 
     let mut outlen = 0;
+
+    let mut param = SECItem {
+        type_: SECItemType::siBuffer,
+        data: unsafe { mem::transmute(&mut aes_param)},
+        len: mem::size_of_val(&aes_param) as c_uint,
+    };
 
     let status = unsafe {
         PK11_Encrypt(
@@ -68,24 +85,23 @@ pub fn encrypt<T: KeyProvider>(key: &T, mode: Mode, iv: &IV, data: &mut [u8]) ->
             data.len() as c_uint
         )
     };
+    // Ensure we keep the key alive long enough
+    drop(key);
 
     let out = if status == SECStatus::SECSuccess {
         out.truncate(outlen as usize);
         Ok(out)
     } else {
-        Err(())
+        Err(port::get_error())
     };
-
-    // Ensure we keep the key alive long enough
-    drop(key);
 
     out
 }
 
-pub fn decrypt<T: KeyProvider>(key: &T, mode: Mode, iv: &IV, data: &mut [u8]) -> Result<Vec<u8>, ()> {
+pub fn decrypt<T: KeyProvider>(key: &T, mode: Mode, iv: &IV, data: &mut [u8]) -> Result<Vec<u8>, SECErrorCodes> {
     let symkey = key.key();
     let mech = mode.to_ckm();
-    let mut param = CK_AES_CBC_ENCRYPT_DATA_PARAMS {
+    let mut aes_param = CK_AES_CBC_ENCRYPT_DATA_PARAMS {
         iv: iv.data(),
         pData: data.as_mut_ptr(),
         length: data.len() as CK_ULONG,
@@ -96,6 +112,11 @@ pub fn decrypt<T: KeyProvider>(key: &T, mode: Mode, iv: &IV, data: &mut [u8]) ->
 
     let mut outlen = 0;
 
+    let mut param = SECItem {
+        type_: SECItemType::siBuffer,
+        data: unsafe { mem::transmute(&mut aes_param)},
+        len: mem::size_of_val(&aes_param) as c_uint,
+    };
 
     let status = unsafe {
         PK11_Decrypt(
@@ -114,7 +135,7 @@ pub fn decrypt<T: KeyProvider>(key: &T, mode: Mode, iv: &IV, data: &mut [u8]) ->
         out.truncate(outlen as usize);
         Ok(out)
     } else {
-        Err(())
+        Err(port::get_error())
     };
 
     // Ensure we keep the key alive long enough

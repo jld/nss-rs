@@ -14,6 +14,7 @@ pub mod ec;
 pub mod error;
 pub mod nspr;
 pub mod slot;
+mod port;
 
 use libc::c_void;
 use nss_sys as ffi;
