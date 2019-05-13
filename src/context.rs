@@ -1,7 +1,10 @@
 use std::ptr;
 
 use nss_sys::nspr::PR_TRUE;
-use nss_sys::{NSSInitContext, NSS_InitContext, NSS_IsInitialized, NSS_ShutdownContext, SECStatus, NSS_NoDB_Init, NSS_INIT_NOROOTINIT, NSS_INIT_NOCERTDB, NSS_INIT_NOMODDB, NSS_INIT_PK11RELOAD};
+use nss_sys::{
+    NSSInitContext, NSS_InitContext, NSS_IsInitialized, NSS_ShutdownContext, NSS_INIT_NOCERTDB,
+    NSS_INIT_NOMODDB, NSS_INIT_NOROOTINIT, NSS_INIT_PK11RELOAD,
+};
 
 #[derive(Debug)]
 pub enum Error {
@@ -22,12 +25,15 @@ impl Context {
         } else {
             let context = unsafe {
                 NSS_InitContext(
-                    ptr::null(),        // configdir
-                    ptr::null(),        // certprefix
-                    ptr::null(),        // keyprefix
-                    ptr::null(),        // secmodname
-                    ptr::null_mut(),    // init params
-                    NSS_INIT_NOROOTINIT | NSS_INIT_NOCERTDB | NSS_INIT_NOMODDB | NSS_INIT_PK11RELOAD // flags
+                    ptr::null(),     // configdir
+                    ptr::null(),     // certprefix
+                    ptr::null(),     // keyprefix
+                    ptr::null(),     // secmodname
+                    ptr::null_mut(), // init params
+                    NSS_INIT_NOROOTINIT
+                        | NSS_INIT_NOCERTDB
+                        | NSS_INIT_NOMODDB
+                        | NSS_INIT_PK11RELOAD, // flags
                 )
             };
 
@@ -49,16 +55,3 @@ impl Drop for Context {
         }
     }
 }
-
-//pub struct Context;
-//
-//impl Context {
-//    pub fn new() -> Result<Self, Error> {
-//        let status = unsafe {NSS_NoDB_Init(ptr::null())};
-//        if status == SECStatus::SECSuccess {
-//            Ok(Context)
-//        } else {
-//            Err(Error::UnableToOpenContext)
-//        }
-//    }
-//}

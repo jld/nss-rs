@@ -13,8 +13,8 @@ pub mod context;
 pub mod ec;
 pub mod error;
 pub mod nspr;
-pub mod slot;
 mod port;
+pub mod slot;
 
 use libc::c_void;
 use nss_sys as ffi;

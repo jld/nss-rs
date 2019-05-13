@@ -9,9 +9,7 @@ pub struct Slot<'ctx> {
 
 impl<'ctx> Slot<'ctx> {
     pub fn internal(context: &'ctx Context) -> Result<Slot<'ctx>, ()> {
-        let slot = unsafe {
-            PK11_GetInternalSlot()
-        };
+        let slot = unsafe { PK11_GetInternalSlot() };
 
         if !slot.is_null() {
             Ok(Slot {
