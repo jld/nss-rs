@@ -15,7 +15,7 @@ use crate::port;
 use crate::error::SECErrorCodes;
 use crate::ec::{KeyPair, PublicKey};
 use crate::slot::Slot;
-use crate::block::{KeyProvider, Mode};
+use crate::block::{KeyProvider, Mode, SymKey};
 
 pub fn agree_ephemeral<'ctx, 'slot>(
     my_private_key: &mut KeyPair<'ctx, 'slot>,
@@ -132,7 +132,7 @@ impl<'ctx, 'slot> Drop for EphemeralKey<'ctx, 'slot> {
 }
 
 impl<'ctx, 'slot> KeyProvider for EphemeralKey<'ctx, 'slot> {
-    fn key(&self) -> *mut PK11SymKey {
-        self.key
+    fn key(&self) -> SymKey {
+        SymKey(self.key)
     }
 }

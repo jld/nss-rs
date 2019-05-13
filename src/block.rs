@@ -49,12 +49,14 @@ impl IV {
     }
 }
 
+pub struct SymKey(pub(crate) *mut PK11SymKey);
+
 pub trait KeyProvider {
-    fn key(&self) -> *mut PK11SymKey;
+    fn key(&self) -> SymKey;
 }
 
 pub fn encrypt<T: KeyProvider>(key: &T, mode: Mode, iv: &IV, data: &mut [u8]) -> Result<Vec<u8>, SECErrorCodes> {
-    let symkey = key.key();
+    let symkey = key.key().0;
     let mech = mode.to_ckm();
     let mut aes_param = CK_AES_CBC_ENCRYPT_DATA_PARAMS {
         iv: iv.data(),
@@ -99,7 +101,7 @@ pub fn encrypt<T: KeyProvider>(key: &T, mode: Mode, iv: &IV, data: &mut [u8]) ->
 }
 
 pub fn decrypt<T: KeyProvider>(key: &T, mode: Mode, iv: &IV, data: &mut [u8]) -> Result<Vec<u8>, SECErrorCodes> {
-    let symkey = key.key();
+    let symkey = key.key().0;
     let mech = mode.to_ckm();
     let mut aes_param = CK_AES_CBC_ENCRYPT_DATA_PARAMS {
         iv: iv.data(),
