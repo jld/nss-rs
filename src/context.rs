@@ -1,7 +1,7 @@
 use std::ptr;
 
 use nss_sys::nspr::PR_TRUE;
-use nss_sys::{NSSInitContext, NSS_InitContext, NSS_IsInitialized, NSS_ShutdownContext, SECStatus, NSS_NoDB_Init, NSS_INIT_NOROOTINIT, NSS_INIT_NOCERTDB, NSS_INIT_NOMODDB };
+use nss_sys::{NSSInitContext, NSS_InitContext, NSS_IsInitialized, NSS_ShutdownContext, SECStatus, NSS_NoDB_Init, NSS_INIT_NOROOTINIT, NSS_INIT_NOCERTDB, NSS_INIT_NOMODDB, NSS_INIT_PK11RELOAD};
 
 #[derive(Debug)]
 pub enum Error {
@@ -27,7 +27,7 @@ impl Context {
                     ptr::null(),        // keyprefix
                     ptr::null(),        // secmodname
                     ptr::null_mut(),    // init params
-                    NSS_INIT_NOROOTINIT | NSS_INIT_NOCERTDB | NSS_INIT_NOMODDB// flags
+                    NSS_INIT_NOROOTINIT | NSS_INIT_NOCERTDB | NSS_INIT_NOMODDB | NSS_INIT_PK11RELOAD // flags
                 )
             };
 
