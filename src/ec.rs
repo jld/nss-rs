@@ -4,21 +4,24 @@ use std::slice;
 
 use nss_sys::{
     PK11_GenerateKeyPairWithOpFlags, SECITEM_CopyItem, SECItem, SECItemType, SECKEYECPublicKey,
-    SECKEYPrivateKey, SECKEYPublicKey, SECKEYPublicKeyStr__bindgen_ty_1, SECOID_FindOIDByTag,
-    SECOidTag, SECStatus, CKF_DERIVE, CKF_SIGN, CKM_EC_KEY_PAIR_GEN, PK11_ATTR_INSENSITIVE,
-    PK11_ATTR_PUBLIC, PK11_ATTR_SESSION, SEC_ASN1_OBJECT_ID,
+    SECKEYPrivateKey, SECKEYPublicKey, SECKEYPublicKeyStr__bindgen_ty_1, SECKEY_DestroyPrivateKey,
+    SECKEY_DestroyPublicKey, SECOID_FindOIDByTag, SECOidTag, SECStatus, CKF_DERIVE, CKF_SIGN,
+    CKM_EC_KEY_PAIR_GEN, PK11_ATTR_INSENSITIVE, PK11_ATTR_PUBLIC, PK11_ATTR_SESSION,
+    SEC_ASN1_OBJECT_ID,
 };
 
 use crate::slot::Slot;
 
 pub enum Curve {
     NistP256,
+    NistP384,
 }
 
 impl Curve {
     fn to_secoid(&self) -> SECOidTag {
         match *self {
             Curve::NistP256 => SECOidTag::SEC_OID_ANSIX962_EC_PRIME256V1,
+            Curve::NistP384 => SECOidTag::SEC_OID_SECG_EC_SECP384R1,
         }
     }
 
@@ -101,9 +104,6 @@ impl<'ctx, 'slot> KeyPair<'ctx, 'slot> {
         }
     }
 
-    //pub fn public_key(&mut self) -> Result<PublicKey, ()> {
-    //    Ok(PublicKey(self.public))
-    //}
     pub fn public_key(&mut self) -> Result<PublicKey, ()> {
         let mut public_value = SECItem {
             type_: SECItemType::siBuffer,
@@ -164,13 +164,19 @@ impl<'ctx, 'slot> KeyPair<'ctx, 'slot> {
 
 impl<'ctx, 'slot> Drop for KeyPair<'ctx, 'slot> {
     fn drop(&mut self) {
-        // TODO(baloo): need to free keys, not sure how this is done
-        // PK11_DestroyObject(pubk->pkcs11Slot, pubk->pkcs11ID);
-
-        // This works for softtoken, but we do not have access:
-        //unsafe { C_DestroyObject(self.session.session, self.public) };
-        //unsafe { C_DestroyObject(self.session.session, self.private) };
+        unsafe {
+            SECKEY_DestroyPublicKey(self.public);
+            SECKEY_DestroyPrivateKey(self.private);
+        }
     }
 }
 
 pub struct PublicKey(pub(crate) SECKEYPublicKey);
+
+impl Drop for PublicKey {
+    fn drop(&mut self) {
+        unsafe {
+            SECKEY_DestroyPublicKey(&mut self.0);
+        }
+    }
+}

@@ -15,3 +15,4 @@
 #include <secitem.h>
 #include <secport.h>
 #include <secerr.h>
+#include <keyhi.h>

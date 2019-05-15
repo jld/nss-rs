@@ -124,6 +124,7 @@ fn main() {
         .whitelist_function("NSS_.*")
         .whitelist_function("SECOID_.*")
         .whitelist_function("SECITEM_.*")
+        .whitelist_function("SECKEY_.*")
         .whitelist_function("PORT_.*")
         .rustified_enum("_SEC.*")
         .rustified_enum("SEC.*")
