@@ -7,6 +7,7 @@ extern crate lazy_static;
 extern crate libc;
 extern crate nss_sys;
 pub mod agreement;
+pub mod arena;
 pub mod block;
 pub mod cert;
 pub mod context;

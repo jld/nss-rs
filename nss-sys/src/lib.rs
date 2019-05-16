@@ -13,5 +13,7 @@ use nspr::*;
 include!(concat!(env!("OUT_DIR"), "/nss.rs"));
 
 pub const CK_TRUE: CK_BBOOL = 1;
-pub const CK_FALSE: CK_BBOOL = 1;
+pub const CK_FALSE: CK_BBOOL = 0;
+
+pub const CK_INVALID_HANDLE: CK_OBJECT_HANDLE = 0;
 

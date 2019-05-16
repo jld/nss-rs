@@ -15,15 +15,15 @@ use crate::error::SECErrorCodes;
 use crate::port;
 use crate::slot::Slot;
 
-pub fn agree_ephemeral<'ctx, 'slot>(
+pub fn agree_ephemeral<'ctx, 'slot, 'a>(
     my_private_key: &mut KeyPair<'ctx, 'slot>,
-    peer_public_key: &mut PublicKey,
+    peer_public_key: &mut PublicKey<'a>,
     mode: Mode,
 ) -> Result<EphemeralKey<'ctx, 'slot>, SECErrorCodes> {
     let new_key = unsafe {
         PK11_PubDerive(
             my_private_key.private,
-            &mut peer_public_key.0,
+            peer_public_key.key,
             PR_FALSE,
             ptr::null_mut(),
             ptr::null_mut(),

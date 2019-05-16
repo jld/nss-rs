@@ -1,6 +1,7 @@
 extern crate nss;
 
 use nss::agreement::agree_ephemeral;
+use nss::arena::Arena;
 use nss::block::{decrypt, encrypt, Mode, IV};
 use nss::context::Context;
 use nss::ec::{Curve, KeyPair};
@@ -9,9 +10,10 @@ use nss::slot::Slot;
 #[test]
 fn derive_key() {
     let context = Context::new().expect("create nss context");
+    let arena = Arena::new(false).expect("create an arena");
     let mut slot = Slot::internal(&context).expect("get internal slot");
     let mut key_pair = KeyPair::generate(&mut slot, Curve::NistP256).expect("create private key");
-    let mut public_key = key_pair.public_key().expect("public key");
+    let mut public_key = key_pair.public_key(&arena).expect("public key");
     let mode = Mode::Aes256Cbc;
     let session_key =
         agree_ephemeral(&mut key_pair, &mut public_key, mode).expect("agree ephemeral key");
@@ -23,9 +25,10 @@ fn derive_key() {
 #[test]
 fn encrypt_decrypt() {
     let context = Context::new().expect("create nss context");
+    let arena = Arena::new(false).expect("create an arena");
     let mut slot = Slot::internal(&context).expect("get internal slot");
     let mut key_pair = KeyPair::generate(&mut slot, Curve::NistP256).expect("create private key");
-    let mut public_key = key_pair.public_key().expect("public key");
+    let mut public_key = key_pair.public_key(&arena).expect("public key");
     let mode = Mode::Aes256Cbc;
     let session_key =
         agree_ephemeral(&mut key_pair, &mut public_key, mode).expect("agree ephemeral key");

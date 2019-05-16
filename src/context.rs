@@ -17,12 +17,12 @@ pub struct Context {
 
 impl Context {
     pub fn new() -> Result<Self, Error> {
-        crate::nspr::init();
         // nss does not play well if initialized with context after being
         // initialized without
         if unsafe { NSS_IsInitialized() } == PR_TRUE {
             Ok(Context { context: None })
         } else {
+            crate::nspr::init();
             let context = unsafe {
                 NSS_InitContext(
                     ptr::null(),     // configdir
@@ -52,6 +52,7 @@ impl Drop for Context {
     fn drop(&mut self) {
         if let Some(context) = self.context.take() {
             unsafe { NSS_ShutdownContext(context) };
+            crate::nspr::shutdown();
         }
     }
 }

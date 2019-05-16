@@ -6,8 +6,8 @@ extern crate bindgen;
 use std::env;
 use std::path::PathBuf;
 
+use bindgen::callbacks::{IntKind, ParseCallbacks};
 use bindgen::RustTarget;
-use bindgen::callbacks::{ParseCallbacks, IntKind};
 
 fn is_prefix(name: &str, prefix: &str) -> bool {
     name.len() >= prefix.len() && &name[..prefix.len()] == prefix
@@ -19,51 +19,54 @@ struct NSSTypes;
 impl ParseCallbacks for NSSTypes {
     fn int_macro(&self, name: &str, _value: i64) -> Option<IntKind> {
         if is_prefix(name, "SSL_LIBRARY_VERSION_") {
-            return Some(IntKind::U16)
+            return Some(IntKind::U16);
         }
         if is_prefix(name, "PR_MSG_") {
-            return Some(IntKind::I32)
+            return Some(IntKind::I32);
         }
         if is_prefix(name, "CKF_") {
             // This should be typed CK_FLAGS
             // on amd64: u64, may be u32 on 32bit, not sure, have to check
-            return Some(IntKind::U64)
+            return Some(IntKind::U64);
         }
         if is_prefix(name, "CKR_") {
             // This should be typed CK_RV
             // on amd64: u64, may be u32 on 32bit, not sure, have to check
-            return Some(IntKind::U64)
+            return Some(IntKind::U64);
         }
         if is_prefix(name, "CKM_") {
             // This should be typed CK_MECHANISM_TYPE
             // on amd64: u64, may be u32 on 32bit, not sure, have to check
-            return Some(IntKind::U64)
+            return Some(IntKind::U64);
         }
         if is_prefix(name, "CKA_") {
             // This should be typed CK_ATTRIBUTE_TYPE
             // on amd64: u64, may be u32 on 32bit, not sure, have to check
-            return Some(IntKind::U64)
+            return Some(IntKind::U64);
         }
         if is_prefix(name, "CKD_") {
             // This should be typed CK_EC_KDF_TYPE
             // on amd64: u64, may be u32 on 32bit, not sure, have to check
-            return Some(IntKind::U64)
+            return Some(IntKind::U64);
         }
         if is_prefix(name, "CKK_") {
             // This should be typed CK_KEY_TYPE
             // on amd64: u64, may be u32 on 32bit, not sure, have to check
-            return Some(IntKind::U64)
+            return Some(IntKind::U64);
+        }
+        if is_prefix(name, "DER_") {
+            return Some(IntKind::U64);
         }
         if is_prefix(name, "PK11_") {
             // This should be typed PK11AttrFlags
-            return Some(IntKind::U32)
+            return Some(IntKind::U32);
         }
         if is_prefix(name, "SEC_ASN1_OBJECT_ID") {
-            return Some(IntKind::U8)
+            return Some(IntKind::U8);
         }
 
         if name == "PR_FALSE" || name == "PR_TRUE" {
-            return Some(IntKind::I32)
+            return Some(IntKind::I32);
         }
         None
     }
@@ -78,7 +81,7 @@ fn base_builder() -> bindgen::Builder {
         // include
         .clang_arg("-I/usr/include/nspr")
         .clang_arg("-I/usr/include/nss")
-        .parse_callbacks(Box::new(NSSTypes{}))
+        .parse_callbacks(Box::new(NSSTypes {}))
 }
 
 fn main() {
@@ -118,6 +121,7 @@ fn main() {
         .whitelist_var("ECCurve.*")
         .whitelist_var("SEC_.*")
         .whitelist_var("PK11_.*")
+        .whitelist_var("DER_.*")
         .whitelist_function("PK11_.*")
         .whitelist_function("SSL_.*")
         .whitelist_function("CERT_.*")
@@ -153,5 +157,4 @@ fn main() {
         .expect("Unable to generate bindings")
         .write_to_file(out_path.join("nspr.rs"))
         .expect("Couldn't write bindings!");
-
 }

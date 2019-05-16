@@ -31,6 +31,12 @@ pub fn init() {
     });
 }
 
+pub fn shutdown() {
+    unsafe {
+        ffi::nspr::PR_Cleanup();
+    }
+}
+
 impl From<ffi::nspr::PRStatus> for GenStatus<()> {
     fn from(status: ffi::nspr::PRStatus) -> Self {
         match status {

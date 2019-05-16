@@ -16,3 +16,4 @@
 #include <secport.h>
 #include <secerr.h>
 #include <keyhi.h>
+#include <secdert.h>
