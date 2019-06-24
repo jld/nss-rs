@@ -1,5 +1,5 @@
 use std::mem;
-use std::os::raw::{c_int, c_uint};
+use std::os::raw::c_uint;
 
 use nss_sys::{
     PK11SymKey, PK11_Decrypt, PK11_Encrypt, SECItem, SECItemType, SECStatus, CKM_AES_CBC,
@@ -15,7 +15,7 @@ pub enum Mode {
 }
 
 impl Mode {
-    pub(crate) fn to_ckm(self) -> CK_MECHANISM_TYPE {
+    fn to_ckm(self) -> CK_MECHANISM_TYPE {
         match self {
             Mode::Aes256Cbc => CKM_AES_CBC,
         }
@@ -25,12 +25,6 @@ impl Mode {
         match self {
             // No pad
             Mode::Aes256Cbc => 0,
-        }
-    }
-
-    pub(crate) fn key_size(self) -> c_int {
-        match self {
-            Mode::Aes256Cbc => 32,
         }
     }
 }
