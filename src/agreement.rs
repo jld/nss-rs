@@ -1,19 +1,43 @@
 use std::ffi::CString;
 use std::fmt;
+use std::os::raw::c_int;
 use std::ptr;
 use std::slice;
 
 use nss_sys::nspr::PR_FALSE;
 use nss_sys::{
     PK11SymKey, PK11_ExtractKeyValue, PK11_FreeSymKey, PK11_GetKeyData, PK11_GetKeyLength,
-    PK11_GetSymKeyNickname, PK11_PubDerive, SECStatus, CKA_DERIVE, CKM_ECDH1_DERIVE,
+    PK11_GetSymKeyNickname, PK11_PubDeriveWithKDF, SECStatus, CKA_DERIVE, CKD_NULL,
+    CKM_ECDH1_DERIVE, CKM_NSS_HKDF_SHA256, CK_MECHANISM_TYPE,
 };
 
-use crate::block::{KeyProvider, Mode, SymKey};
+use crate::block::{KeyProvider, SymKey};
 use crate::ec::{KeyPair, PublicKey};
 use crate::error::SECErrorCodes;
 use crate::port;
 use crate::slot::Slot;
+
+#[derive(Debug, Copy, Clone)]
+pub enum Mode {
+    ECDH1Derive,
+    KdfSha256,
+}
+
+impl Mode {
+    fn to_ckm(self) -> CK_MECHANISM_TYPE {
+        match self {
+            Mode::ECDH1Derive => CKM_ECDH1_DERIVE,
+            Mode::KdfSha256 => CKM_NSS_HKDF_SHA256,
+        }
+    }
+
+    fn key_size(self) -> c_int {
+        match self {
+            Mode::ECDH1Derive => 32,
+            Mode::KdfSha256 => 32,
+        }
+    }
+}
 
 pub fn agree_ephemeral<'ctx, 'slot, 'a>(
     my_private_key: &mut KeyPair<'ctx, 'slot>,
@@ -21,7 +45,7 @@ pub fn agree_ephemeral<'ctx, 'slot, 'a>(
     mode: Mode,
 ) -> Result<EphemeralKey<'ctx, 'slot>, SECErrorCodes> {
     let new_key = unsafe {
-        PK11_PubDerive(
+        PK11_PubDeriveWithKDF(
             my_private_key.private,
             peer_public_key.key,
             PR_FALSE,
@@ -31,7 +55,9 @@ pub fn agree_ephemeral<'ctx, 'slot, 'a>(
             mode.to_ckm(),    // target
             CKA_DERIVE,       // operation
             mode.key_size(),  // len
-            ptr::null_mut(),
+            CKD_NULL,         // kdf
+            ptr::null_mut(),  // shared data
+            ptr::null_mut(),  // wincx
         )
     };
 
@@ -68,7 +94,7 @@ impl<'ctx, 'slot> EphemeralKey<'ctx, 'slot> {
         }
     }
 
-    fn as_buf(&self) -> Result<Option<Vec<u8>>, ()> {
+    pub fn as_buf(&self) -> Result<Option<Vec<u8>>, ()> {
         let len = unsafe { PK11_GetKeyLength(self.key) };
 
         if len == 0 {
