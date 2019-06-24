@@ -5,17 +5,34 @@ use std::ptr;
 use std::slice;
 
 use nss_sys::{
-    ECPointEncoding_ECPoint_Undefined, KeyType_ecKey, PK11_GenerateKeyPairWithOpFlags,
-    PORT_ArenaZAlloc, SECITEM_AllocItem, SECITEM_CopyItem, SECItem, SECItemType, SECKEYPrivateKey,
-    SECKEYPublicKey, SECKEY_CopyPublicKey, SECKEY_DestroyPrivateKey, SECKEY_DestroyPublicKey,
+    ECPointEncoding_ECPoint_Undefined, KeyType_ecKey, PK11_ExtractKeyValue,
+    PK11_GenerateKeyPairWithOpFlags, PK11_GetKeyData, PK11_GetKeyLength, PORT_ArenaZAlloc,
+    SECITEM_AllocItem, SECITEM_CopyItem, SECItem, SECItemType, SECKEYPrivateKey, SECKEYPublicKey,
+    SECKEY_CopyPublicKey, SECKEY_DestroyPrivateKey, SECKEY_DestroyPublicKey,
     SECKEY_ImportDERPublicKey, SECOID_FindOIDByTag, SECOidTag, SECStatus, CKF_DERIVE, CKF_SIGN,
     CKK_EC, CKM_EC_KEY_PAIR_GEN, CK_INVALID_HANDLE, PK11_ATTR_INSENSITIVE, PK11_ATTR_PUBLIC,
     PK11_ATTR_SESSION, SEC_ASN1_OBJECT_ID,
 };
 
 use crate::arena::Arena;
+use crate::error::SECErrorCodes;
+use crate::port;
 use crate::slot::Slot;
 
+#[derive(Debug)]
+pub enum Error {
+    Nss(SECErrorCodes),
+    UnsupportedCurve,
+    InvalidParameters,
+}
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        <Self as fmt::Debug>::fmt(self, f)
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
 pub enum Curve {
     NistP256,
     NistP384,
@@ -29,11 +46,11 @@ impl Curve {
         }
     }
 
-    fn to_params(&self) -> Result<CurveParams, ()> {
+    fn to_params(&self) -> Result<CurveParams, Error> {
         let secoid = self.to_secoid();
         let oiddata = unsafe { SECOID_FindOIDByTag(secoid) };
         if oiddata.is_null() {
-            return Err(());
+            return Err(Error::UnsupportedCurve);
         }
 
         let data =
@@ -69,7 +86,10 @@ pub struct KeyPair<'ctx, 'slot> {
 }
 
 impl<'ctx, 'slot> KeyPair<'ctx, 'slot> {
-    pub fn generate(slot: &'slot mut Slot<'ctx>, curve: Curve) -> Result<KeyPair<'ctx, 'slot>, ()> {
+    pub fn generate(
+        slot: &'slot mut Slot<'ctx>,
+        curve: Curve,
+    ) -> Result<KeyPair<'ctx, 'slot>, Error> {
         let mut ec_params = curve.to_params()?;
 
         let mut sec_item = SECItem {
@@ -104,7 +124,7 @@ impl<'ctx, 'slot> KeyPair<'ctx, 'slot> {
             })
         } else {
             // TODO(baloo): may be return something a bit more explicit
-            Err(())
+            Err(port::get_error()).map_err(Error::Nss)
         }
     }
 
@@ -141,7 +161,7 @@ pub struct PublicKey<'a> {
 }
 
 impl<'a> PublicKey<'a> {
-    pub fn import(arena: &'a Arena, curve: Curve, der: &[u8]) -> Result<Self, ()> {
+    pub fn import(arena: &'a Arena, curve: Curve, der: &[u8]) -> Result<Self, Error> {
         unsafe {
             let arena_ptr = arena.as_ptr();
 
@@ -151,7 +171,7 @@ impl<'a> PublicKey<'a> {
             let key = if !key.is_null() {
                 Self { arena, key }
             } else {
-                return Err(());
+                return Err(port::get_error()).map_err(Error::Nss);
             };
 
             (*key.key).arena = arena_ptr;
@@ -164,7 +184,7 @@ impl<'a> PublicKey<'a> {
                 params.len() as c_uint,
             );
             if key_curve_params.is_null() {
-                return Err(());
+                return Err(port::get_error()).map_err(Error::Nss);
             }
 
             let mut curve_params = SECItem {
@@ -177,7 +197,7 @@ impl<'a> PublicKey<'a> {
 
             if status != SECStatus::SECSuccess {
                 // key_curve_params is to be droped by key drop, no need to drop it manually here
-                return Err(());
+                return Err(port::get_error()).map_err(Error::Nss);
             }
 
             (*key.key).u.ec.encoding = ECPointEncoding_ECPoint_Undefined;
@@ -193,7 +213,7 @@ impl<'a> PublicKey<'a> {
 
             if status != SECStatus::SECSuccess {
                 // key_curve_params is to be droped by key drop, no need to drop it manually here
-                return Err(());
+                return Err(port::get_error()).map_err(Error::Nss);
             }
 
             (*key.key).pkcs11Slot = ptr::null_mut();
@@ -203,7 +223,12 @@ impl<'a> PublicKey<'a> {
         }
     }
 
-    pub fn import_affine(arena: &'a Arena, curve: Curve, x: &[u8], y: &[u8]) -> Result<Self, Error> {
+    pub fn import_affine(
+        arena: &'a Arena,
+        curve: Curve,
+        x: &[u8],
+        y: &[u8],
+    ) -> Result<Self, Error> {
         if x.len() != y.len() {
             return Err(Error::InvalidParameters);
         }
@@ -233,7 +258,7 @@ impl<'a> PublicKey<'a> {
     }
 
     pub fn as_buf(&self) -> Vec<u8> {
-        let ref key = unsafe{ (*self.key).u.ec.publicValue };
+        let ref key = unsafe { (*self.key).u.ec.publicValue };
         let len = key.len as usize;
 
         if len > 0 {
