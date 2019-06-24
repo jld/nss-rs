@@ -5,13 +5,12 @@ use std::ptr;
 use std::slice;
 
 use nss_sys::{
-    ECPointEncoding_ECPoint_Undefined, KeyType_ecKey, PK11_ExtractKeyValue,
-    PK11_GenerateKeyPairWithOpFlags, PK11_GetKeyData, PK11_GetKeyLength, PORT_ArenaZAlloc,
-    SECITEM_AllocItem, SECITEM_CopyItem, SECItem, SECItemType, SECKEYPrivateKey, SECKEYPublicKey,
-    SECKEY_CopyPublicKey, SECKEY_DestroyPrivateKey, SECKEY_DestroyPublicKey,
-    SECKEY_ImportDERPublicKey, SECOID_FindOIDByTag, SECOidTag, SECStatus, CKF_DERIVE, CKF_SIGN,
-    CKK_EC, CKM_EC_KEY_PAIR_GEN, CK_INVALID_HANDLE, PK11_ATTR_INSENSITIVE, PK11_ATTR_PUBLIC,
-    PK11_ATTR_SESSION, SEC_ASN1_OBJECT_ID,
+    ECPointEncoding_ECPoint_Undefined, KeyType_ecKey, PK11_GenerateKeyPairWithOpFlags,
+    PORT_ArenaZAlloc, SECITEM_AllocItem, SECITEM_CopyItem, SECItem, SECItemType, SECKEYPrivateKey,
+    SECKEYPublicKey, SECKEY_CopyPublicKey, SECKEY_DestroyPrivateKey, SECKEY_DestroyPublicKey,
+    SECOID_FindOIDByTag, SECOidTag, SECStatus, CKF_DERIVE, CKF_SIGN, CKM_EC_KEY_PAIR_GEN,
+    CK_INVALID_HANDLE, PK11_ATTR_INSENSITIVE, PK11_ATTR_PUBLIC, PK11_ATTR_SESSION,
+    SEC_ASN1_OBJECT_ID,
 };
 
 use crate::arena::Arena;
@@ -133,7 +132,7 @@ impl<'ctx, 'slot> KeyPair<'ctx, 'slot> {
         let key = unsafe { SECKEY_CopyPublicKey(self.public) };
 
         if !key.is_null() {
-            Ok(PublicKey { arena, key })
+            Ok(PublicKey { _arena: arena, key })
         } else {
             Err(())
         }
@@ -156,7 +155,7 @@ pub struct AffineCoords {
 
 // TOOD(baloo):
 pub struct PublicKey<'a> {
-    arena: &'a Arena,
+    _arena: &'a Arena,
     pub(crate) key: *mut SECKEYPublicKey,
 }
 
@@ -169,7 +168,7 @@ impl<'a> PublicKey<'a> {
                 as *mut SECKEYPublicKey;
 
             let key = if !key.is_null() {
-                Self { arena, key }
+                Self { _arena: arena, key }
             } else {
                 return Err(port::get_error()).map_err(Error::Nss);
             };
@@ -203,13 +202,13 @@ impl<'a> PublicKey<'a> {
             (*key.key).u.ec.encoding = ECPointEncoding_ECPoint_Undefined;
 
             let mut der_owned = Vec::from(der);
-            let ecPoint = SECItem {
+            let ec_point = SECItem {
                 type_: SECItemType::siBuffer,
                 data: (&mut der_owned[..]).as_mut_ptr(),
                 len: der_owned.len() as c_uint,
             };
 
-            let status = SECITEM_CopyItem(arena_ptr, &mut (*key.key).u.ec.publicValue, &ecPoint);
+            let status = SECITEM_CopyItem(arena_ptr, &mut (*key.key).u.ec.publicValue, &ec_point);
 
             if status != SECStatus::SECSuccess {
                 // key_curve_params is to be droped by key drop, no need to drop it manually here
