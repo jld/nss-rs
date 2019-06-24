@@ -1,3 +1,4 @@
+use std::fmt;
 use std::mem;
 use std::os::raw::{c_uint, c_void};
 use std::ptr;
@@ -230,6 +231,18 @@ impl<'a> PublicKey<'a> {
 
         AffineCoords { x, y }
     }
+
+    pub fn as_buf(&self) -> Vec<u8> {
+        let ref key = unsafe{ (*self.key).u.ec.publicValue };
+        let len = key.len as usize;
+
+        if len > 0 {
+            let data = unsafe { slice::from_raw_parts(key.data, len) };
+            Vec::from(data)
+        } else {
+            Vec::new()
+        }
+    }
 }
 
 impl<'a> Drop for PublicKey<'a> {
@@ -237,5 +250,12 @@ impl<'a> Drop for PublicKey<'a> {
         unsafe {
             SECKEY_DestroyPublicKey(self.key);
         }
+    }
+}
+
+impl<'a> fmt::Debug for PublicKey<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let buf = self.as_buf();
+        write!(f, "PublicKey({:x?})", buf)
     }
 }
