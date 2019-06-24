@@ -202,6 +202,18 @@ impl<'a> PublicKey<'a> {
         }
     }
 
+    pub fn import_affine(arena: &'a Arena, curve: Curve, x: &[u8], y: &[u8]) -> Result<Self, Error> {
+        if x.len() != y.len() {
+            return Err(Error::InvalidParameters);
+        }
+        let mut der = Vec::with_capacity(1 + x.len() + y.len());
+        der.push(0x04);
+        der.extend_from_slice(x);
+        der.extend_from_slice(y);
+
+        Self::import(arena, curve, der.as_ref())
+    }
+
     pub fn affine_coordinates(&self) -> AffineCoords {
         let ref public = unsafe { (*self.key).u.ec.publicValue };
         if public.data.is_null() {
